@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/tmr232/goat"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -12,10 +13,9 @@ import (
 	"gonum.org/v1/gonum/graph/encoding/dot"
 	"gonum.org/v1/gonum/graph/simple"
 	"log"
-	"os"
 )
 
-func Demo(flag bool) {
+func Demo(flag bool, n int) {
 	if flag {
 		fmt.Println("Hello, World!")
 	}
@@ -24,6 +24,26 @@ func Demo(flag bool) {
 	for _, x := range "Hello, World!" {
 		fmt.Println(x)
 	}
+
+	if flag {
+		fmt.Println("A")
+	} else if n == 3 {
+		fmt.Println("B")
+	} else if n == 2 {
+		fmt.Println("C")
+	} else {
+		fmt.Println("D")
+	}
+
+	switch n {
+	case 1:
+		return
+	case 2:
+		return
+	case 3:
+		return
+	}
+	fmt.Println("Yo")
 }
 
 type Node struct {
@@ -134,12 +154,17 @@ func blocksToDot(function *ssa.Function) ([]byte, error) {
 	return dotGraph, err
 }
 
-func main() {
+// GenerateOverview creates a graph overview of the given function and
+// prints it out in graphviz DOT format to STDOUT.
+func GenerateOverview(pkg string, function string) error {
+	goat.Flag("pkg").Usage("The path of the package to load.\nYou may need to run `go get` to fetch it first.")
+	goat.Flag("function").Usage("The name of the function to generate an overview of.")
+
 	// Load, parse, and type-check the initial packages.
 	cfg := &packages.Config{Mode: packages.LoadSyntax}
-	initial, err := packages.Load(cfg, ".")
+	initial, err := packages.Load(cfg, pkg)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	// Stop if any package had errors.
@@ -150,7 +175,7 @@ func main() {
 	}
 
 	// Create SSA packages for all well-typed packages.
-	prog, pkgs := ssautil.Packages(initial, ssa.PrintPackages)
+	prog, pkgs := ssautil.Packages(initial, 0)
 	_ = prog
 
 	// Build SSA code for the well-typed initial packages.
@@ -158,22 +183,24 @@ func main() {
 		if p != nil {
 			p.Build()
 		}
-		p.Func("Demo").WriteTo(os.Stdout)
-		for _, block := range p.Func("Demo").Blocks {
-			fmt.Println(block.Index, len(block.Instrs))
+	}
+
+	for _, p := range pkgs {
+		ssaFunc := p.Func(function)
+		if ssaFunc == nil {
+			return fmt.Errorf("function %s not found", function)
 		}
-		data, err := blocksToDot(p.Func("main"))
+		data, err := blocksToDot(ssaFunc)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		fmt.Println(string(data))
 	}
 
-	//graph := simple.NewDirectedGraph()
-	//graph.AddNode(&Node{0, "abc"})
-	//dotGraph, err := dot.Marshal(graph, "Graph", "", "    ")
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//fmt.Println(string(dotGraph))
+	return nil
+}
+
+//go:generate go run github.com/tmr232/goat/cmd/goater
+func main() {
+	goat.Run(GenerateOverview)
 }
