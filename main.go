@@ -3,17 +3,16 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"gonum.org/v1/gonum/graph"
-	"gonum.org/v1/gonum/graph/encoding"
-	"log"
-	"os"
-	"strings"
-
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
+	"gonum.org/v1/gonum/floats"
+	"gonum.org/v1/gonum/graph"
+	"gonum.org/v1/gonum/graph/encoding"
 	"gonum.org/v1/gonum/graph/encoding/dot"
 	"gonum.org/v1/gonum/graph/simple"
+	"log"
+	"os"
 )
 
 func Demo(flag bool) {
@@ -34,13 +33,32 @@ type Node struct {
 
 func (n Node) Attributes() []encoding.Attribute {
 	var lines []string
-	for _, instr := range n.function.Blocks[n.index].Instrs {
+	block := n.function.Blocks[n.index]
+	for _, instr := range block.Instrs {
 		lines = append(lines, instr.String())
 	}
 
+	fillColor := "gray"
+	shape := "box"
+	minHeight := 0.2
+	if len(block.Succs) == 0 && len(block.Preds) != 0 {
+		fillColor = "#AB3030" // Dark red
+		shape = "house"
+		minHeight = 0.5
+	} else if len(block.Succs) != 0 && len(block.Preds) == 0 {
+		fillColor = "#48AB30" // Dark green
+		shape = "invhouse"
+		minHeight = 0.5
+	}
+
 	return []encoding.Attribute{
-		{"label", strings.Join(lines, "\n") + "\n"},
-		{"shape", "box"},
+		//{"label", strings.Join(lines, "\n") + "\n"},
+		{"label", ""},
+		{"shape", shape},
+		{"fixedsize", "true"},
+		{"height", fmt.Sprint(floats.Max([]float64{minHeight, float64(len(block.Instrs)) * 0.1}))},
+		{"fillcolor", fillColor},
+		{"style", "filled"},
 	}
 }
 
@@ -144,7 +162,7 @@ func main() {
 		for _, block := range p.Func("Demo").Blocks {
 			fmt.Println(block.Index, len(block.Instrs))
 		}
-		data, err := blocksToDot(p.Func("Demo"))
+		data, err := blocksToDot(p.Func("main"))
 		if err != nil {
 			log.Fatal(err)
 		}
