@@ -1,13 +1,7 @@
-# go-overview-graph
+package demo
 
-A tool for displaying graph overviews of Go functions.
+import "fmt"
 
-This is very early work-in-progress!!!
-
-## Example
-
-```go
-// File: demo/demo.go
 func Demo(flag bool, n int) {
 	if flag {
 		fmt.Println("Hello, World!")
@@ -38,14 +32,3 @@ func Demo(flag bool, n int) {
 	}
 	fmt.Println("Yo")
 }
-```
-
-Run the tool:
-
-```bash
-go run . --pkg ./demo --function Demo | dot -Tpng -o"media/demo.png"
-```
-
-And we get:
-
-![Graph showing the control flow of the Demo function](media/demo.png)
