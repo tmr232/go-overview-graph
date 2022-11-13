@@ -126,8 +126,8 @@ func blocksToDot(function *ssa.Function) ([]byte, error) {
 // GenerateOverview creates a graph overview of the given function and
 // prints it out in graphviz DOT format to STDOUT.
 func GenerateOverview(pkg string, function string) error {
-	goat.Flag("pkg").Usage("The path of the package to load.\nYou may need to run `go get` to fetch it first.")
-	goat.Flag("function").Usage("The name of the function to generate an overview of.")
+	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
+	goat.Flag(function).Usage("The name of the function to generate an overview of.")
 
 	// Load, parse, and type-check the initial packages.
 	cfg := &packages.Config{Mode: packages.LoadSyntax}

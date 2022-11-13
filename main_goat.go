@@ -9,8 +9,8 @@ import (
 func init() {
 	goat.Register(GenerateOverview, goat.RunConfig{
 		Flags: []cli.Flag{
-			flags.MakeFlag[string]("pkg", "", nil).AsCliFlag(),
-			flags.MakeFlag[string]("function", "", nil).AsCliFlag(),
+			flags.MakeFlag[string]("pkg", "The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.", nil).AsCliFlag(),
+			flags.MakeFlag[string]("function", "The name of the function to generate an overview of.", nil).AsCliFlag(),
 		},
 		Name:  "GenerateOverview",
 		Usage: "creates a graph overview of the given function and\nprints it out in graphviz DOT format to STDOUT.",
