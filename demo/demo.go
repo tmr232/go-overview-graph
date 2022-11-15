@@ -32,3 +32,20 @@ func Demo(flag bool, n int) {
 	}
 	fmt.Println("Yo")
 }
+
+type Thing struct{}
+
+func (t *Thing) Action() {
+	func() {
+		fmt.Println("H")
+	}()
+	if t == nil {
+		fmt.Println("Oh no!")
+	} else {
+		fmt.Println("Yes!")
+	}
+}
+
+func f() {
+	(&Thing{}).Action()
+}

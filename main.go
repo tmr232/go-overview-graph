@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"github.com/tmr232/goat"
+	"go/token"
+	"go/types"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -12,7 +16,9 @@ import (
 	"gonum.org/v1/gonum/graph/encoding"
 	"gonum.org/v1/gonum/graph/encoding/dot"
 	"gonum.org/v1/gonum/graph/simple"
+	"io/ioutil"
 	"log"
+	"reflect"
 )
 
 type Node struct {
@@ -123,9 +129,94 @@ func blocksToDot(function *ssa.Function) ([]byte, error) {
 	return dotGraph, err
 }
 
+type entry struct {
+	Func     *ssa.Function
+	Position token.Position
+}
+
+type FunctionOverview struct {
+	Name string `json:"name"`
+	Dot  string `json:"dot"`
+	Line int    `json:"line"`
+}
+
+type FileOverview struct {
+	Filename  string             `json:"filename"`
+	Functions []FunctionOverview `json:"functions"`
+}
+
+type Overview map[string]*FileOverview
+
+// PackageOverview generates an overview for an entire package.
+func PackageOverview(pkg string, outpath string) error {
+	goat.Self().Name("package")
+	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
+	goat.Flag(outpath).Name("out").Usage("Output file will be written to `path`.")
+
+	// Load, parse, and type-check the initial packages.
+	cfg := &packages.Config{Mode: packages.LoadSyntax}
+	initial, err := packages.Load(cfg, pkg)
+	if err != nil {
+		return err
+	}
+
+	// Stop if any package had errors.
+	// This step is optional; without it, the next step
+	// will create SSA for only a subset of packages.
+	if packages.PrintErrors(initial) > 0 {
+		log.Fatalf("packages contain errors")
+	}
+
+	// Create SSA packages for all well-typed packages.
+	prog, pkgs := ssautil.Packages(initial, 0)
+	_ = prog
+
+	// Build SSA code for the well-typed initial packages.
+	for _, p := range pkgs {
+		if p != nil {
+			p.Build()
+		}
+	}
+
+	overview := make(Overview)
+	for f, _ := range ssautil.AllFunctions(prog) {
+		if f.Pkg != pkgs[0] {
+			continue
+		}
+		pos := prog.Fset.Position(f.Pos())
+
+		fileOverview, exists := overview[pos.Filename]
+		if !exists {
+			fileOverview = &FileOverview{Filename: pos.Filename}
+			overview[pos.Filename] = fileOverview
+		}
+		funcDot, err := blocksToDot(f)
+		if err != nil {
+			return errors.Wrap(err, "Failed converting function to dot")
+		}
+		fileOverview.Functions = append(fileOverview.Functions, FunctionOverview{
+			Name: f.Name(),
+			Dot:  string(funcDot),
+			Line: pos.Line,
+		})
+	}
+
+	jsonData, err := json.Marshal(overview)
+	if err != nil {
+		return errors.Wrap(err, "failed marshaling JSON")
+	}
+
+	err = ioutil.WriteFile(outpath, jsonData, 0o666)
+	if err != nil {
+		return errors.Wrap(err, "Failed writing result")
+	}
+	return nil
+}
+
 // GenerateOverview creates a graph overview of the given function and
 // prints it out in graphviz DOT format to STDOUT.
 func GenerateOverview(pkg string, function string) error {
+	goat.Self().Name("function")
 	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
 	goat.Flag(function).Usage("The name of the function to generate an overview of.")
 
@@ -155,21 +246,56 @@ func GenerateOverview(pkg string, function string) error {
 	}
 
 	for _, p := range pkgs {
-		ssaFunc := p.Func(function)
-		if ssaFunc == nil {
-			return fmt.Errorf("function %s not found", function)
+		for name, member := range p.Members {
+			fmt.Println(name, reflect.TypeOf(member))
+			switch member := member.(type) {
+			case *ssa.Function:
+				fmt.Println("Function", name)
+			case *ssa.Type:
+				ptr := types.NewPointer(member.Type())
+				mset := prog.MethodSets.MethodSet(ptr)
+				fmt.Println("Mset", mset.Len())
+				for i := 0; i < mset.Len(); i++ {
+					fmt.Println("Method", prog.MethodValue(mset.At(i)).Name())
+				}
+			}
+			//if _, isFunc := member.(*ssa.Function); isFunc {
+			//	fmt.Println(name, member)
+			//}
 		}
-		data, err := blocksToDot(ssaFunc)
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
 	}
+
+	fmt.Println("-------------------------")
+	for f, _ := range ssautil.AllFunctions(prog) {
+		if f.Pkg != pkgs[0] {
+			continue
+		}
+		pos := prog.Fset.Position(f.Pos())
+		fmt.Println(f, pos)
+	}
+
+	// How do we get methodS?!!?!?!?
+
+	//
+	//for _, p := range pkgs {
+	//	ssaFunc := p.Func(function)
+	//	if ssaFunc == nil {
+	//		return fmt.Errorf("function %s not found", function)
+	//	}
+	//	data, err := blocksToDot(ssaFunc)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	fmt.Println(string(data))
+	//}
 
 	return nil
 }
 
 //go:generate go run github.com/tmr232/goat/cmd/goater
 func main() {
-	goat.Run(GenerateOverview)
+	goat.App("graph-overview",
+		goat.Command(GenerateOverview),
+		goat.Command(PackageOverview),
+	).Run()
 }
