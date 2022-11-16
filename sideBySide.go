@@ -19,6 +19,7 @@ import (
 var sideBySideTemplate string
 
 type sideBySideRow struct {
+	Name  string
 	Code  string
 	Image *string
 }
@@ -72,8 +73,8 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 	currentLine := 0
 
 	for _, overview := range functionOverviews {
-		lineBlocks = append(lineBlocks, strings.Join(lines[currentLine:overview.Line], "\n"))
-		currentLine = overview.Line
+		lineBlocks = append(lineBlocks, strings.Join(lines[currentLine:overview.Line-1], "\n"))
+		currentLine = overview.Line - 1
 	}
 	lineBlocks = append(lineBlocks, strings.Join(lines[currentLine:], "\n"))
 
@@ -85,15 +86,17 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 	for i, code := range lineBlocks[1:] {
 		funcOverview := functionOverviews[i]
 
-		imagePath := path.Join(outPath, funcOverview.Name+".png")
+		imageName := funcOverview.Name + ".png"
+		imagePath := path.Join(outPath, imageName)
 		err := renderPng([]byte(funcOverview.Dot), imagePath)
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("Failed rendering PNG for %s into %s", funcOverview.Name, imagePath))
 		}
 
 		data.Rows = append(data.Rows, sideBySideRow{
+			Name:  funcOverview.Name,
 			Code:  code,
-			Image: &imagePath,
+			Image: &imageName,
 		})
 	}
 

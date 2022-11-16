@@ -2,11 +2,12 @@ package main
 
 import (
 	"github.com/pkg/errors"
+	"log"
 	"os/exec"
 )
 
 func renderPng(dotData []byte, path string) error {
-	cmd := exec.Command("dot", "-Tpng", "-o", path)
+	cmd := exec.Command("dot", "-Tpng", "-Gdpi=50", "-o", path)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return errors.Wrap(err, "Failed getting STDIN pipe for DOT command")
@@ -16,8 +17,10 @@ func renderPng(dotData []byte, path string) error {
 		defer stdin.Close()
 		stdin.Write(dotData)
 	}()
+	out, err := cmd.CombinedOutput()
 
-	err = cmd.Run()
+	log.Printf("%s\n", out)
+
 	if err != nil {
 		return errors.Wrap(err, "Failed running DOT command")
 	}

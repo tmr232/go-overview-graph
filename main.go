@@ -199,6 +199,9 @@ func SideBySide(pkg string, outpath string) error {
 		})
 	}
 	for _, fileOverview := range overview {
+		if fileOverview.Filename == "" {
+			continue
+		}
 		err := renderSideBySide(fileOverview, outpath)
 		if err != nil {
 			return errors.Wrap(err, "Failed rendering SXS")
