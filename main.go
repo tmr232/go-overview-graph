@@ -7,7 +7,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tmr232/goat"
 	"go/token"
-	"go/types"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -18,7 +17,6 @@ import (
 	"gonum.org/v1/gonum/graph/simple"
 	"io/ioutil"
 	"log"
-	"reflect"
 )
 
 type Node struct {
@@ -215,10 +213,11 @@ func PackageOverview(pkg string, outpath string) error {
 
 // GenerateOverview creates a graph overview of the given function and
 // prints it out in graphviz DOT format to STDOUT.
-func GenerateOverview(pkg string, function string) error {
+func GenerateOverview(pkg string, function string, png *string) error {
 	goat.Self().Name("function")
 	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
 	goat.Flag(function).Usage("The name of the function to generate an overview of.")
+	goat.Flag(png).Usage("An optional `path` to save a rendered PNG to.\nWhen used, DOT will not be printed to STDOUT.")
 
 	// Load, parse, and type-check the initial packages.
 	cfg := &packages.Config{Mode: packages.LoadSyntax}
@@ -246,48 +245,23 @@ func GenerateOverview(pkg string, function string) error {
 	}
 
 	for _, p := range pkgs {
-		for name, member := range p.Members {
-			fmt.Println(name, reflect.TypeOf(member))
-			switch member := member.(type) {
-			case *ssa.Function:
-				fmt.Println("Function", name)
-			case *ssa.Type:
-				ptr := types.NewPointer(member.Type())
-				mset := prog.MethodSets.MethodSet(ptr)
-				fmt.Println("Mset", mset.Len())
-				for i := 0; i < mset.Len(); i++ {
-					fmt.Println("Method", prog.MethodValue(mset.At(i)).Name())
-				}
+		ssaFunc := p.Func(function)
+		if ssaFunc == nil {
+			return fmt.Errorf("function %s not found", function)
+		}
+		data, err := blocksToDot(ssaFunc)
+		if err != nil {
+			return err
+		}
+		if png == nil {
+			fmt.Println(string(data))
+		} else {
+			err = renderPng(data, *png)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprint("Failed rendering PNG to ", png))
 			}
-			//if _, isFunc := member.(*ssa.Function); isFunc {
-			//	fmt.Println(name, member)
-			//}
 		}
 	}
-
-	fmt.Println("-------------------------")
-	for f, _ := range ssautil.AllFunctions(prog) {
-		if f.Pkg != pkgs[0] {
-			continue
-		}
-		pos := prog.Fset.Position(f.Pos())
-		fmt.Println(f, pos)
-	}
-
-	// How do we get methodS?!!?!?!?
-
-	//
-	//for _, p := range pkgs {
-	//	ssaFunc := p.Func(function)
-	//	if ssaFunc == nil {
-	//		return fmt.Errorf("function %s not found", function)
-	//	}
-	//	data, err := blocksToDot(ssaFunc)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	fmt.Println(string(data))
-	//}
 
 	return nil
 }
