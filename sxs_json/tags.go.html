@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>tags.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>tags.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2011 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package json
+
+import (
+	&#34;strings&#34;
+)
+
+// tagOptions is the string following a comma in a struct field&#39;s &#34;json&#34;
+// tag, or the empty string. It does not include the leading comma.
+type tagOptions string
+
+// parseTag splits a struct field&#39;s json tag into its name and
+// comma-separated options.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func parseTag(tag string) (string, tagOptions) {
+	tag, opt, _ := strings.Cut(tag, &#34;,&#34;)
+	return tag, tagOptions(opt)
+}
+
+// Contains reports whether a comma-separated list of options
+// contains a particular substr flag. substr must be surrounded by a
+// string boundary or commas.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="tags.go._.parseTag.png" alt="Control flow graph of parseTag">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (o tagOptions) Contains(optionName string) bool {
+	if len(o) == 0 {
+		return false
+	}
+	s := string(o)
+	for s != &#34;&#34; {
+		var name string
+		name, s, _ = strings.Cut(s, &#34;,&#34;)
+		if name == optionName {
+			return true
+		}
+	}
+	return false
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="tags.go._.Contains.png" alt="Control flow graph of Contains">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>

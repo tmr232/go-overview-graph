@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>scanner.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>scanner.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package json
+
+// JSON value parser state machine.
+// Just about at the limit of what is reasonable to write by hand.
+// Some parts are a bit tedious, but overall it nicely factors out the
+// otherwise common code from the multiple scanning functions
+// in this package (Compact, Indent, checkValid, etc).
+//
+// This file starts with two simple examples using the scanner
+// before diving into the scanner itself.
+
+import (
+	&#34;strconv&#34;
+	&#34;sync&#34;
+)
+
+// Valid reports whether data is a valid JSON encoding.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Valid(data []byte) bool {
+	scan := newScanner()
+	defer freeScanner(scan)
+	return checkValid(data, scan) == nil
+}
+
+// checkValid verifies that data is valid JSON-encoded data.
+// scan is passed in for use by checkValid to avoid an allocation.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.Valid.png" alt="Control flow graph of Valid">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func checkValid(data []byte, scan *scanner) error {
+	scan.reset()
+	for _, c := range data {
+		scan.bytes&#43;&#43;
+		if scan.step(scan, c) == scanError {
+			return scan.err
+		}
+	}
+	if scan.eof() == scanError {
+		return scan.err
+	}
+	return nil
+}
+
+// A SyntaxError is a description of a JSON syntax error.
+type SyntaxError struct {
+	msg    string // description of error
+	Offset int64  // error occurred after reading Offset bytes
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.checkValid.png" alt="Control flow graph of checkValid">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (e *SyntaxError) Error() string { return e.msg }
+
+// A scanner is a JSON scanning state machine.
+// Callers call scan.reset and then pass bytes in one at a time
+// by calling scan.step(&amp;scan, c) for each byte.
+// The return value, referred to as an opcode, tells the
+// caller about significant parsing events like beginning
+// and ending literals, objects, and arrays, so that the
+// caller can follow along if it wishes.
+// The return value scanEnd indicates that a single top-level
+// JSON value has been completed, *before* the byte that
+// just got passed in.  (The indication must be delayed in order
+// to recognize the end of numbers: is 123 a whole value or
+// the beginning of 12345e&#43;6?).
+type scanner struct {
+	// The step is a func to be called to execute the next transition.
+	// Also tried using an integer constant and a single func
+	// with a switch, but using the func directly was 10% faster
+	// on a 64-bit Mac Mini, and it&#39;s nicer to read.
+	step func(*scanner, byte) int
+
+	// Reached end of top-level value.
+	endTop bool
+
+	// Stack of what we&#39;re in the middle of - array values, object keys, object values.
+	parseState []int
+
+	// Error that happened, if any.
+	err error
+
+	// total bytes consumed, updated by decoder.Decode (and deliberately
+	// not set to zero by scan.reset)
+	bytes int64
+}
+
+var scannerPool = sync.Pool{
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.Error.png" alt="Control flow graph of Error">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>	New: func() any {
+		return &amp;scanner{}
+	},
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.init$1.png" alt="Control flow graph of init$1">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func newScanner() *scanner {
+	scan := scannerPool.Get().(*scanner)
+	// scan.reset by design doesn&#39;t set bytes to zero
+	scan.bytes = 0
+	scan.reset()
+	return scan
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.newScanner.png" alt="Control flow graph of newScanner">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func freeScanner(scan *scanner) {
+	// Avoid hanging on to too much memory in extreme cases.
+	if len(scan.parseState) &gt; 1024 {
+		scan.parseState = nil
+	}
+	scannerPool.Put(scan)
+}
+
+// These values are returned by the state transition functions
+// assigned to scanner.state and the method scanner.eof.
+// They give details about the current state of the scan that
+// callers might be interested to know about.
+// It is okay to ignore the return value of any particular
+// call to scanner.state: if one call returns scanError,
+// every subsequent call will return scanError too.
+const (
+	// Continue.
+	scanContinue     = iota // uninteresting byte
+	scanBeginLiteral        // end implied by next result != scanContinue
+	scanBeginObject         // begin object
+	scanObjectKey           // just finished object key (string)
+	scanObjectValue         // just finished non-last object value
+	scanEndObject           // end object (implies scanObjectValue if possible)
+	scanBeginArray          // begin array
+	scanArrayValue          // just finished array value
+	scanEndArray            // end array (implies scanArrayValue if possible)
+	scanSkipSpace           // space byte; can skip; known to be last &#34;continue&#34; result
+
+	// Stop.
+	scanEnd   // top-level value ended *before* this byte; known to be first &#34;stop&#34; result
+	scanError // hit an error, scanner.err.
+)
+
+// These values are stored in the parseState stack.
+// They give the current state of a composite value
+// being scanned. If the parser is inside a nested value
+// the parseState describes the nested state, outermost at entry 0.
+const (
+	parseObjectKey   = iota // parsing object key (before colon)
+	parseObjectValue        // parsing object value (after colon)
+	parseArrayValue         // parsing array value
+)
+
+// This limits the max nesting depth to prevent stack overflow.
+// This is permitted by https://tools.ietf.org/html/rfc7159#section-9
+const maxNestingDepth = 10000
+
+// reset prepares the scanner for use.
+// It must be called before calling s.step.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.freeScanner.png" alt="Control flow graph of freeScanner">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *scanner) reset() {
+	s.step = stateBeginValue
+	s.parseState = s.parseState[0:0]
+	s.err = nil
+	s.endTop = false
+}
+
+// eof tells the scanner that the end of input has been reached.
+// It returns a scan status just as s.step does.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.reset.png" alt="Control flow graph of reset">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *scanner) eof() int {
+	if s.err != nil {
+		return scanError
+	}
+	if s.endTop {
+		return scanEnd
+	}
+	s.step(s, &#39; &#39;)
+	if s.endTop {
+		return scanEnd
+	}
+	if s.err == nil {
+		s.err = &amp;SyntaxError{&#34;unexpected end of JSON input&#34;, s.bytes}
+	}
+	return scanError
+}
+
+// pushParseState pushes a new parse state p onto the parse stack.
+// an error state is returned if maxNestingDepth was exceeded, otherwise successState is returned.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.eof.png" alt="Control flow graph of eof">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *scanner) pushParseState(c byte, newParseState int, successState int) int {
+	s.parseState = append(s.parseState, newParseState)
+	if len(s.parseState) &lt;= maxNestingDepth {
+		return successState
+	}
+	return s.error(c, &#34;exceeded max depth&#34;)
+}
+
+// popParseState pops a parse state (already obtained) off the stack
+// and updates s.step accordingly.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.pushParseState.png" alt="Control flow graph of pushParseState">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *scanner) popParseState() {
+	n := len(s.parseState) - 1
+	s.parseState = s.parseState[0:n]
+	if n == 0 {
+		s.step = stateEndTop
+		s.endTop = true
+	} else {
+		s.step = stateEndValue
+	}
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.popParseState.png" alt="Control flow graph of popParseState">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func isSpace(c byte) bool {
+	return c &lt;= &#39; &#39; &amp;&amp; (c == &#39; &#39; || c == &#39;\t&#39; || c == &#39;\r&#39; || c == &#39;\n&#39;)
+}
+
+// stateBeginValueOrEmpty is the state after reading `[`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.isSpace.png" alt="Control flow graph of isSpace">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateBeginValueOrEmpty(s *scanner, c byte) int {
+	if isSpace(c) {
+		return scanSkipSpace
+	}
+	if c == &#39;]&#39; {
+		return stateEndValue(s, c)
+	}
+	return stateBeginValue(s, c)
+}
+
+// stateBeginValue is the state at the beginning of the input.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateBeginValueOrEmpty.png" alt="Control flow graph of stateBeginValueOrEmpty">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateBeginValue(s *scanner, c byte) int {
+	if isSpace(c) {
+		return scanSkipSpace
+	}
+	switch c {
+	case &#39;{&#39;:
+		s.step = stateBeginStringOrEmpty
+		return s.pushParseState(c, parseObjectKey, scanBeginObject)
+	case &#39;[&#39;:
+		s.step = stateBeginValueOrEmpty
+		return s.pushParseState(c, parseArrayValue, scanBeginArray)
+	case &#39;&#34;&#39;:
+		s.step = stateInString
+		return scanBeginLiteral
+	case &#39;-&#39;:
+		s.step = stateNeg
+		return scanBeginLiteral
+	case &#39;0&#39;: // beginning of 0.123
+		s.step = state0
+		return scanBeginLiteral
+	case &#39;t&#39;: // beginning of true
+		s.step = stateT
+		return scanBeginLiteral
+	case &#39;f&#39;: // beginning of false
+		s.step = stateF
+		return scanBeginLiteral
+	case &#39;n&#39;: // beginning of null
+		s.step = stateN
+		return scanBeginLiteral
+	}
+	if &#39;1&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; { // beginning of 1234.5
+		s.step = state1
+		return scanBeginLiteral
+	}
+	return s.error(c, &#34;looking for beginning of value&#34;)
+}
+
+// stateBeginStringOrEmpty is the state after reading `{`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateBeginValue.png" alt="Control flow graph of stateBeginValue">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateBeginStringOrEmpty(s *scanner, c byte) int {
+	if isSpace(c) {
+		return scanSkipSpace
+	}
+	if c == &#39;}&#39; {
+		n := len(s.parseState)
+		s.parseState[n-1] = parseObjectValue
+		return stateEndValue(s, c)
+	}
+	return stateBeginString(s, c)
+}
+
+// stateBeginString is the state after reading `{&#34;key&#34;: value,`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateBeginStringOrEmpty.png" alt="Control flow graph of stateBeginStringOrEmpty">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateBeginString(s *scanner, c byte) int {
+	if isSpace(c) {
+		return scanSkipSpace
+	}
+	if c == &#39;&#34;&#39; {
+		s.step = stateInString
+		return scanBeginLiteral
+	}
+	return s.error(c, &#34;looking for beginning of object key string&#34;)
+}
+
+// stateEndValue is the state after completing a value,
+// such as after reading `{}` or `true` or `[&#34;x&#34;`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateBeginString.png" alt="Control flow graph of stateBeginString">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateEndValue(s *scanner, c byte) int {
+	n := len(s.parseState)
+	if n == 0 {
+		// Completed top-level before the current byte.
+		s.step = stateEndTop
+		s.endTop = true
+		return stateEndTop(s, c)
+	}
+	if isSpace(c) {
+		s.step = stateEndValue
+		return scanSkipSpace
+	}
+	ps := s.parseState[n-1]
+	switch ps {
+	case parseObjectKey:
+		if c == &#39;:&#39; {
+			s.parseState[n-1] = parseObjectValue
+			s.step = stateBeginValue
+			return scanObjectKey
+		}
+		return s.error(c, &#34;after object key&#34;)
+	case parseObjectValue:
+		if c == &#39;,&#39; {
+			s.parseState[n-1] = parseObjectKey
+			s.step = stateBeginString
+			return scanObjectValue
+		}
+		if c == &#39;}&#39; {
+			s.popParseState()
+			return scanEndObject
+		}
+		return s.error(c, &#34;after object key:value pair&#34;)
+	case parseArrayValue:
+		if c == &#39;,&#39; {
+			s.step = stateBeginValue
+			return scanArrayValue
+		}
+		if c == &#39;]&#39; {
+			s.popParseState()
+			return scanEndArray
+		}
+		return s.error(c, &#34;after array element&#34;)
+	}
+	return s.error(c, &#34;&#34;)
+}
+
+// stateEndTop is the state after finishing the top-level value,
+// such as after reading `{}` or `[1,2,3]`.
+// Only space characters should be seen now.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateEndValue.png" alt="Control flow graph of stateEndValue">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateEndTop(s *scanner, c byte) int {
+	if !isSpace(c) {
+		// Complain about non-space byte on next call.
+		s.error(c, &#34;after top-level value&#34;)
+	}
+	return scanEnd
+}
+
+// stateInString is the state after reading `&#34;`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateEndTop.png" alt="Control flow graph of stateEndTop">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateInString(s *scanner, c byte) int {
+	if c == &#39;&#34;&#39; {
+		s.step = stateEndValue
+		return scanContinue
+	}
+	if c == &#39;\\&#39; {
+		s.step = stateInStringEsc
+		return scanContinue
+	}
+	if c &lt; 0x20 {
+		return s.error(c, &#34;in string literal&#34;)
+	}
+	return scanContinue
+}
+
+// stateInStringEsc is the state after reading `&#34;\` during a quoted string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateInString.png" alt="Control flow graph of stateInString">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateInStringEsc(s *scanner, c byte) int {
+	switch c {
+	case &#39;b&#39;, &#39;f&#39;, &#39;n&#39;, &#39;r&#39;, &#39;t&#39;, &#39;\\&#39;, &#39;/&#39;, &#39;&#34;&#39;:
+		s.step = stateInString
+		return scanContinue
+	case &#39;u&#39;:
+		s.step = stateInStringEscU
+		return scanContinue
+	}
+	return s.error(c, &#34;in string escape code&#34;)
+}
+
+// stateInStringEscU is the state after reading `&#34;\u` during a quoted string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateInStringEsc.png" alt="Control flow graph of stateInStringEsc">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateInStringEscU(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; || &#39;a&#39; &lt;= c &amp;&amp; c &lt;= &#39;f&#39; || &#39;A&#39; &lt;= c &amp;&amp; c &lt;= &#39;F&#39; {
+		s.step = stateInStringEscU1
+		return scanContinue
+	}
+	// numbers
+	return s.error(c, &#34;in \\u hexadecimal character escape&#34;)
+}
+
+// stateInStringEscU1 is the state after reading `&#34;\u1` during a quoted string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateInStringEscU.png" alt="Control flow graph of stateInStringEscU">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateInStringEscU1(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; || &#39;a&#39; &lt;= c &amp;&amp; c &lt;= &#39;f&#39; || &#39;A&#39; &lt;= c &amp;&amp; c &lt;= &#39;F&#39; {
+		s.step = stateInStringEscU12
+		return scanContinue
+	}
+	// numbers
+	return s.error(c, &#34;in \\u hexadecimal character escape&#34;)
+}
+
+// stateInStringEscU12 is the state after reading `&#34;\u12` during a quoted string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateInStringEscU1.png" alt="Control flow graph of stateInStringEscU1">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateInStringEscU12(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; || &#39;a&#39; &lt;= c &amp;&amp; c &lt;= &#39;f&#39; || &#39;A&#39; &lt;= c &amp;&amp; c &lt;= &#39;F&#39; {
+		s.step = stateInStringEscU123
+		return scanContinue
+	}
+	// numbers
+	return s.error(c, &#34;in \\u hexadecimal character escape&#34;)
+}
+
+// stateInStringEscU123 is the state after reading `&#34;\u123` during a quoted string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateInStringEscU12.png" alt="Control flow graph of stateInStringEscU12">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateInStringEscU123(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; || &#39;a&#39; &lt;= c &amp;&amp; c &lt;= &#39;f&#39; || &#39;A&#39; &lt;= c &amp;&amp; c &lt;= &#39;F&#39; {
+		s.step = stateInString
+		return scanContinue
+	}
+	// numbers
+	return s.error(c, &#34;in \\u hexadecimal character escape&#34;)
+}
+
+// stateNeg is the state after reading `-` during a number.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateInStringEscU123.png" alt="Control flow graph of stateInStringEscU123">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateNeg(s *scanner, c byte) int {
+	if c == &#39;0&#39; {
+		s.step = state0
+		return scanContinue
+	}
+	if &#39;1&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; {
+		s.step = state1
+		return scanContinue
+	}
+	return s.error(c, &#34;in numeric literal&#34;)
+}
+
+// state1 is the state after reading a non-zero integer during a number,
+// such as after reading `1` or `100` but not `0`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateNeg.png" alt="Control flow graph of stateNeg">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func state1(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; {
+		s.step = state1
+		return scanContinue
+	}
+	return state0(s, c)
+}
+
+// state0 is the state after reading `0` during a number.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.state1.png" alt="Control flow graph of state1">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func state0(s *scanner, c byte) int {
+	if c == &#39;.&#39; {
+		s.step = stateDot
+		return scanContinue
+	}
+	if c == &#39;e&#39; || c == &#39;E&#39; {
+		s.step = stateE
+		return scanContinue
+	}
+	return stateEndValue(s, c)
+}
+
+// stateDot is the state after reading the integer and decimal point in a number,
+// such as after reading `1.`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.state0.png" alt="Control flow graph of state0">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateDot(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; {
+		s.step = stateDot0
+		return scanContinue
+	}
+	return s.error(c, &#34;after decimal point in numeric literal&#34;)
+}
+
+// stateDot0 is the state after reading the integer, decimal point, and subsequent
+// digits of a number, such as after reading `3.14`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateDot.png" alt="Control flow graph of stateDot">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateDot0(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; {
+		return scanContinue
+	}
+	if c == &#39;e&#39; || c == &#39;E&#39; {
+		s.step = stateE
+		return scanContinue
+	}
+	return stateEndValue(s, c)
+}
+
+// stateE is the state after reading the mantissa and e in a number,
+// such as after reading `314e` or `0.314e`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateDot0.png" alt="Control flow graph of stateDot0">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateE(s *scanner, c byte) int {
+	if c == &#39;&#43;&#39; || c == &#39;-&#39; {
+		s.step = stateESign
+		return scanContinue
+	}
+	return stateESign(s, c)
+}
+
+// stateESign is the state after reading the mantissa, e, and sign in a number,
+// such as after reading `314e-` or `0.314e&#43;`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateE.png" alt="Control flow graph of stateE">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateESign(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; {
+		s.step = stateE0
+		return scanContinue
+	}
+	return s.error(c, &#34;in exponent of numeric literal&#34;)
+}
+
+// stateE0 is the state after reading the mantissa, e, optional sign,
+// and at least one digit of the exponent in a number,
+// such as after reading `314e-2` or `0.314e&#43;1` or `3.14e0`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateESign.png" alt="Control flow graph of stateESign">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateE0(s *scanner, c byte) int {
+	if &#39;0&#39; &lt;= c &amp;&amp; c &lt;= &#39;9&#39; {
+		return scanContinue
+	}
+	return stateEndValue(s, c)
+}
+
+// stateT is the state after reading `t`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateE0.png" alt="Control flow graph of stateE0">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateT(s *scanner, c byte) int {
+	if c == &#39;r&#39; {
+		s.step = stateTr
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal true (expecting &#39;r&#39;)&#34;)
+}
+
+// stateTr is the state after reading `tr`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateT.png" alt="Control flow graph of stateT">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateTr(s *scanner, c byte) int {
+	if c == &#39;u&#39; {
+		s.step = stateTru
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal true (expecting &#39;u&#39;)&#34;)
+}
+
+// stateTru is the state after reading `tru`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateTr.png" alt="Control flow graph of stateTr">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateTru(s *scanner, c byte) int {
+	if c == &#39;e&#39; {
+		s.step = stateEndValue
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal true (expecting &#39;e&#39;)&#34;)
+}
+
+// stateF is the state after reading `f`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateTru.png" alt="Control flow graph of stateTru">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateF(s *scanner, c byte) int {
+	if c == &#39;a&#39; {
+		s.step = stateFa
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal false (expecting &#39;a&#39;)&#34;)
+}
+
+// stateFa is the state after reading `fa`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateF.png" alt="Control flow graph of stateF">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateFa(s *scanner, c byte) int {
+	if c == &#39;l&#39; {
+		s.step = stateFal
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal false (expecting &#39;l&#39;)&#34;)
+}
+
+// stateFal is the state after reading `fal`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateFa.png" alt="Control flow graph of stateFa">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateFal(s *scanner, c byte) int {
+	if c == &#39;s&#39; {
+		s.step = stateFals
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal false (expecting &#39;s&#39;)&#34;)
+}
+
+// stateFals is the state after reading `fals`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateFal.png" alt="Control flow graph of stateFal">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateFals(s *scanner, c byte) int {
+	if c == &#39;e&#39; {
+		s.step = stateEndValue
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal false (expecting &#39;e&#39;)&#34;)
+}
+
+// stateN is the state after reading `n`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateFals.png" alt="Control flow graph of stateFals">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateN(s *scanner, c byte) int {
+	if c == &#39;u&#39; {
+		s.step = stateNu
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal null (expecting &#39;u&#39;)&#34;)
+}
+
+// stateNu is the state after reading `nu`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateN.png" alt="Control flow graph of stateN">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateNu(s *scanner, c byte) int {
+	if c == &#39;l&#39; {
+		s.step = stateNul
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal null (expecting &#39;l&#39;)&#34;)
+}
+
+// stateNul is the state after reading `nul`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateNu.png" alt="Control flow graph of stateNu">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateNul(s *scanner, c byte) int {
+	if c == &#39;l&#39; {
+		s.step = stateEndValue
+		return scanContinue
+	}
+	return s.error(c, &#34;in literal null (expecting &#39;l&#39;)&#34;)
+}
+
+// stateError is the state after reaching a syntax error,
+// such as after reading `[1}` or `5.1.2`.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateNul.png" alt="Control flow graph of stateNul">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func stateError(s *scanner, c byte) int {
+	return scanError
+}
+
+// error records an error and switches to the error state.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.stateError.png" alt="Control flow graph of stateError">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *scanner) error(c byte, context string) int {
+	s.step = stateError
+	s.err = &amp;SyntaxError{&#34;invalid character &#34; &#43; quoteChar(c) &#43; &#34; &#34; &#43; context, s.bytes}
+	return scanError
+}
+
+// quoteChar formats c as a quoted character literal
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.error.png" alt="Control flow graph of error">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func quoteChar(c byte) string {
+	// special cases - different from quoted strings
+	if c == &#39;\&#39;&#39; {
+		return `&#39;\&#39;&#39;`
+	}
+	if c == &#39;&#34;&#39; {
+		return `&#39;&#34;&#39;`
+	}
+
+	// use quoted string with different quotation marks
+	s := strconv.Quote(string(c))
+	return &#34;&#39;&#34; &#43; s[1:len(s)-1] &#43; &#34;&#39;&#34;
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scanner.go._.quoteChar.png" alt="Control flow graph of quoteChar">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>

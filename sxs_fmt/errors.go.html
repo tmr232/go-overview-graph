@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>errors.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>errors.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2018 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package fmt
+
+import &#34;errors&#34;
+
+// Errorf formats according to a format specifier and returns the string as a
+// value that satisfies error.
+//
+// If the format specifier includes a %w verb with an error operand,
+// the returned error will implement an Unwrap method returning the operand. It is
+// invalid to include more than one %w verb or to supply it with an operand
+// that does not implement the error interface. The %w verb is otherwise
+// a synonym for %v.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Errorf(format string, a ...any) error {
+	p := newPrinter()
+	p.wrapErrs = true
+	p.doPrintf(format, a)
+	s := string(p.buf)
+	var err error
+	if p.wrappedErr == nil {
+		err = errors.New(s)
+	} else {
+		err = &amp;wrapError{s, p.wrappedErr}
+	}
+	p.free()
+	return err
+}
+
+type wrapError struct {
+	msg string
+	err error
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="errors.go._.Errorf.png" alt="Control flow graph of Errorf">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (e *wrapError) Error() string {
+	return e.msg
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="errors.go._.Error.png" alt="Control flow graph of Error">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (e *wrapError) Unwrap() error {
+	return e.err
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="errors.go._.Unwrap.png" alt="Control flow graph of Unwrap">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>

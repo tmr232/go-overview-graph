@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>stream.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>stream.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package json
+
+import (
+	&#34;bytes&#34;
+	&#34;errors&#34;
+	&#34;io&#34;
+)
+
+// A Decoder reads and decodes JSON values from an input stream.
+type Decoder struct {
+	r       io.Reader
+	buf     []byte
+	d       decodeState
+	scanp   int   // start of unread data in buf
+	scanned int64 // amount of data already scanned
+	scan    scanner
+	err     error
+
+	tokenState int
+	tokenStack []int
+}
+
+// NewDecoder returns a new decoder that reads from r.
+//
+// The decoder introduces its own buffering and may
+// read data from r beyond the JSON values requested.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func NewDecoder(r io.Reader) *Decoder {
+	return &amp;Decoder{r: r}
+}
+
+// UseNumber causes the Decoder to unmarshal a number into an interface{} as a
+// Number instead of as a float64.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.NewDecoder.png" alt="Control flow graph of NewDecoder">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) UseNumber() { dec.d.useNumber = true }
+
+// DisallowUnknownFields causes the Decoder to return an error when the destination
+// is a struct and the input contains object keys which do not match any
+// non-ignored, exported fields in the destination.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.UseNumber.png" alt="Control flow graph of UseNumber">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) DisallowUnknownFields() { dec.d.disallowUnknownFields = true }
+
+// Decode reads the next JSON-encoded value from its
+// input and stores it in the value pointed to by v.
+//
+// See the documentation for Unmarshal for details about
+// the conversion of JSON into a Go value.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.DisallowUnknownFields.png" alt="Control flow graph of DisallowUnknownFields">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) Decode(v any) error {
+	if dec.err != nil {
+		return dec.err
+	}
+
+	if err := dec.tokenPrepareForDecode(); err != nil {
+		return err
+	}
+
+	if !dec.tokenValueAllowed() {
+		return &amp;SyntaxError{msg: &#34;not at beginning of value&#34;, Offset: dec.InputOffset()}
+	}
+
+	// Read whole value into buffer.
+	n, err := dec.readValue()
+	if err != nil {
+		return err
+	}
+	dec.d.init(dec.buf[dec.scanp : dec.scanp&#43;n])
+	dec.scanp &#43;= n
+
+	// Don&#39;t save err from unmarshal into dec.err:
+	// the connection is still usable since we read a complete JSON
+	// object from it before the error happened.
+	err = dec.d.unmarshal(v)
+
+	// fixup token streaming state
+	dec.tokenValueEnd()
+
+	return err
+}
+
+// Buffered returns a reader of the data remaining in the Decoder&#39;s
+// buffer. The reader is valid until the next call to Decode.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.Decode.png" alt="Control flow graph of Decode">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) Buffered() io.Reader {
+	return bytes.NewReader(dec.buf[dec.scanp:])
+}
+
+// readValue reads a JSON value into dec.buf.
+// It returns the length of the encoding.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.Buffered.png" alt="Control flow graph of Buffered">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) readValue() (int, error) {
+	dec.scan.reset()
+
+	scanp := dec.scanp
+	var err error
+Input:
+	// help the compiler see that scanp is never negative, so it can remove
+	// some bounds checks below.
+	for scanp &gt;= 0 {
+
+		// Look in the buffer for a new value.
+		for ; scanp &lt; len(dec.buf); scanp&#43;&#43; {
+			c := dec.buf[scanp]
+			dec.scan.bytes&#43;&#43;
+			switch dec.scan.step(&amp;dec.scan, c) {
+			case scanEnd:
+				// scanEnd is delayed one byte so we decrement
+				// the scanner bytes count by 1 to ensure that
+				// this value is correct in the next call of Decode.
+				dec.scan.bytes--
+				break Input
+			case scanEndObject, scanEndArray:
+				// scanEnd is delayed one byte.
+				// We might block trying to get that byte from src,
+				// so instead invent a space byte.
+				if stateEndValue(&amp;dec.scan, &#39; &#39;) == scanEnd {
+					scanp&#43;&#43;
+					break Input
+				}
+			case scanError:
+				dec.err = dec.scan.err
+				return 0, dec.scan.err
+			}
+		}
+
+		// Did the last read have an error?
+		// Delayed until now to allow buffer scan.
+		if err != nil {
+			if err == io.EOF {
+				if dec.scan.step(&amp;dec.scan, &#39; &#39;) == scanEnd {
+					break Input
+				}
+				if nonSpace(dec.buf) {
+					err = io.ErrUnexpectedEOF
+				}
+			}
+			dec.err = err
+			return 0, err
+		}
+
+		n := scanp - dec.scanp
+		err = dec.refill()
+		scanp = dec.scanp &#43; n
+	}
+	return scanp - dec.scanp, nil
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.readValue.png" alt="Control flow graph of readValue">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) refill() error {
+	// Make room to read more into the buffer.
+	// First slide down data already consumed.
+	if dec.scanp &gt; 0 {
+		dec.scanned &#43;= int64(dec.scanp)
+		n := copy(dec.buf, dec.buf[dec.scanp:])
+		dec.buf = dec.buf[:n]
+		dec.scanp = 0
+	}
+
+	// Grow buffer if not large enough.
+	const minRead = 512
+	if cap(dec.buf)-len(dec.buf) &lt; minRead {
+		newBuf := make([]byte, len(dec.buf), 2*cap(dec.buf)&#43;minRead)
+		copy(newBuf, dec.buf)
+		dec.buf = newBuf
+	}
+
+	// Read. Delay error for next iteration (after scan).
+	n, err := dec.r.Read(dec.buf[len(dec.buf):cap(dec.buf)])
+	dec.buf = dec.buf[0 : len(dec.buf)&#43;n]
+
+	return err
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.refill.png" alt="Control flow graph of refill">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func nonSpace(b []byte) bool {
+	for _, c := range b {
+		if !isSpace(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// An Encoder writes JSON values to an output stream.
+type Encoder struct {
+	w          io.Writer
+	err        error
+	escapeHTML bool
+
+	indentBuf    *bytes.Buffer
+	indentPrefix string
+	indentValue  string
+}
+
+// NewEncoder returns a new encoder that writes to w.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.nonSpace.png" alt="Control flow graph of nonSpace">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func NewEncoder(w io.Writer) *Encoder {
+	return &amp;Encoder{w: w, escapeHTML: true}
+}
+
+// Encode writes the JSON encoding of v to the stream,
+// followed by a newline character.
+//
+// See the documentation for Marshal for details about the
+// conversion of Go values to JSON.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.NewEncoder.png" alt="Control flow graph of NewEncoder">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (enc *Encoder) Encode(v any) error {
+	if enc.err != nil {
+		return enc.err
+	}
+	e := newEncodeState()
+	err := e.marshal(v, encOpts{escapeHTML: enc.escapeHTML})
+	if err != nil {
+		return err
+	}
+
+	// Terminate each value with a newline.
+	// This makes the output look a little nicer
+	// when debugging, and some kind of space
+	// is required if the encoded value was a number,
+	// so that the reader knows there aren&#39;t more
+	// digits coming.
+	e.WriteByte(&#39;\n&#39;)
+
+	b := e.Bytes()
+	if enc.indentPrefix != &#34;&#34; || enc.indentValue != &#34;&#34; {
+		if enc.indentBuf == nil {
+			enc.indentBuf = new(bytes.Buffer)
+		}
+		enc.indentBuf.Reset()
+		err = Indent(enc.indentBuf, b, enc.indentPrefix, enc.indentValue)
+		if err != nil {
+			return err
+		}
+		b = enc.indentBuf.Bytes()
+	}
+	if _, err = enc.w.Write(b); err != nil {
+		enc.err = err
+	}
+	encodeStatePool.Put(e)
+	return err
+}
+
+// SetIndent instructs the encoder to format each subsequent encoded
+// value as if indented by the package-level function Indent(dst, src, prefix, indent).
+// Calling SetIndent(&#34;&#34;, &#34;&#34;) disables indentation.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.Encode.png" alt="Control flow graph of Encode">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (enc *Encoder) SetIndent(prefix, indent string) {
+	enc.indentPrefix = prefix
+	enc.indentValue = indent
+}
+
+// SetEscapeHTML specifies whether problematic HTML characters
+// should be escaped inside JSON quoted strings.
+// The default behavior is to escape &amp;, &lt;, and &gt; to \u0026, \u003c, and \u003e
+// to avoid certain safety problems that can arise when embedding JSON in HTML.
+//
+// In non-HTML settings where the escaping interferes with the readability
+// of the output, SetEscapeHTML(false) disables this behavior.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.SetIndent.png" alt="Control flow graph of SetIndent">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (enc *Encoder) SetEscapeHTML(on bool) {
+	enc.escapeHTML = on
+}
+
+// RawMessage is a raw encoded JSON value.
+// It implements Marshaler and Unmarshaler and can
+// be used to delay JSON decoding or precompute a JSON encoding.
+type RawMessage []byte
+
+// MarshalJSON returns m as the JSON encoding of m.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.SetEscapeHTML.png" alt="Control flow graph of SetEscapeHTML">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (m RawMessage) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return []byte(&#34;null&#34;), nil
+	}
+	return m, nil
+}
+
+// UnmarshalJSON sets *m to a copy of data.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.MarshalJSON.png" alt="Control flow graph of MarshalJSON">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (m *RawMessage) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return errors.New(&#34;json.RawMessage: UnmarshalJSON on nil pointer&#34;)
+	}
+	*m = append((*m)[0:0], data...)
+	return nil
+}
+
+var _ Marshaler = (*RawMessage)(nil)
+var _ Unmarshaler = (*RawMessage)(nil)
+
+// A Token holds a value of one of these types:
+//
+//	Delim, for the four JSON delimiters [ ] { }
+//	bool, for JSON booleans
+//	float64, for JSON numbers
+//	Number, for JSON numbers
+//	string, for JSON string literals
+//	nil, for JSON null
+//
+type Token any
+
+const (
+	tokenTopValue = iota
+	tokenArrayStart
+	tokenArrayValue
+	tokenArrayComma
+	tokenObjectStart
+	tokenObjectKey
+	tokenObjectColon
+	tokenObjectValue
+	tokenObjectComma
+)
+
+// advance tokenstate from a separator state to a value state
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.UnmarshalJSON.png" alt="Control flow graph of UnmarshalJSON">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) tokenPrepareForDecode() error {
+	// Note: Not calling peek before switch, to avoid
+	// putting peek into the standard Decode path.
+	// peek is only called when using the Token API.
+	switch dec.tokenState {
+	case tokenArrayComma:
+		c, err := dec.peek()
+		if err != nil {
+			return err
+		}
+		if c != &#39;,&#39; {
+			return &amp;SyntaxError{&#34;expected comma after array element&#34;, dec.InputOffset()}
+		}
+		dec.scanp&#43;&#43;
+		dec.tokenState = tokenArrayValue
+	case tokenObjectColon:
+		c, err := dec.peek()
+		if err != nil {
+			return err
+		}
+		if c != &#39;:&#39; {
+			return &amp;SyntaxError{&#34;expected colon after object key&#34;, dec.InputOffset()}
+		}
+		dec.scanp&#43;&#43;
+		dec.tokenState = tokenObjectValue
+	}
+	return nil
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.tokenPrepareForDecode.png" alt="Control flow graph of tokenPrepareForDecode">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) tokenValueAllowed() bool {
+	switch dec.tokenState {
+	case tokenTopValue, tokenArrayStart, tokenArrayValue, tokenObjectValue:
+		return true
+	}
+	return false
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.tokenValueAllowed.png" alt="Control flow graph of tokenValueAllowed">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) tokenValueEnd() {
+	switch dec.tokenState {
+	case tokenArrayStart, tokenArrayValue:
+		dec.tokenState = tokenArrayComma
+	case tokenObjectValue:
+		dec.tokenState = tokenObjectComma
+	}
+}
+
+// A Delim is a JSON array or object delimiter, one of [ ] { or }.
+type Delim rune
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.tokenValueEnd.png" alt="Control flow graph of tokenValueEnd">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (d Delim) String() string {
+	return string(d)
+}
+
+// Token returns the next JSON token in the input stream.
+// At the end of the input stream, Token returns nil, io.EOF.
+//
+// Token guarantees that the delimiters [ ] { } it returns are
+// properly nested and matched: if Token encounters an unexpected
+// delimiter in the input, it will return an error.
+//
+// The input stream consists of basic JSON values—bool, string,
+// number, and null—along with delimiters [ ] { } of type Delim
+// to mark the start and end of arrays and objects.
+// Commas and colons are elided.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.String.png" alt="Control flow graph of String">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) Token() (Token, error) {
+	for {
+		c, err := dec.peek()
+		if err != nil {
+			return nil, err
+		}
+		switch c {
+		case &#39;[&#39;:
+			if !dec.tokenValueAllowed() {
+				return dec.tokenError(c)
+			}
+			dec.scanp&#43;&#43;
+			dec.tokenStack = append(dec.tokenStack, dec.tokenState)
+			dec.tokenState = tokenArrayStart
+			return Delim(&#39;[&#39;), nil
+
+		case &#39;]&#39;:
+			if dec.tokenState != tokenArrayStart &amp;&amp; dec.tokenState != tokenArrayComma {
+				return dec.tokenError(c)
+			}
+			dec.scanp&#43;&#43;
+			dec.tokenState = dec.tokenStack[len(dec.tokenStack)-1]
+			dec.tokenStack = dec.tokenStack[:len(dec.tokenStack)-1]
+			dec.tokenValueEnd()
+			return Delim(&#39;]&#39;), nil
+
+		case &#39;{&#39;:
+			if !dec.tokenValueAllowed() {
+				return dec.tokenError(c)
+			}
+			dec.scanp&#43;&#43;
+			dec.tokenStack = append(dec.tokenStack, dec.tokenState)
+			dec.tokenState = tokenObjectStart
+			return Delim(&#39;{&#39;), nil
+
+		case &#39;}&#39;:
+			if dec.tokenState != tokenObjectStart &amp;&amp; dec.tokenState != tokenObjectComma {
+				return dec.tokenError(c)
+			}
+			dec.scanp&#43;&#43;
+			dec.tokenState = dec.tokenStack[len(dec.tokenStack)-1]
+			dec.tokenStack = dec.tokenStack[:len(dec.tokenStack)-1]
+			dec.tokenValueEnd()
+			return Delim(&#39;}&#39;), nil
+
+		case &#39;:&#39;:
+			if dec.tokenState != tokenObjectColon {
+				return dec.tokenError(c)
+			}
+			dec.scanp&#43;&#43;
+			dec.tokenState = tokenObjectValue
+			continue
+
+		case &#39;,&#39;:
+			if dec.tokenState == tokenArrayComma {
+				dec.scanp&#43;&#43;
+				dec.tokenState = tokenArrayValue
+				continue
+			}
+			if dec.tokenState == tokenObjectComma {
+				dec.scanp&#43;&#43;
+				dec.tokenState = tokenObjectKey
+				continue
+			}
+			return dec.tokenError(c)
+
+		case &#39;&#34;&#39;:
+			if dec.tokenState == tokenObjectStart || dec.tokenState == tokenObjectKey {
+				var x string
+				old := dec.tokenState
+				dec.tokenState = tokenTopValue
+				err := dec.Decode(&amp;x)
+				dec.tokenState = old
+				if err != nil {
+					return nil, err
+				}
+				dec.tokenState = tokenObjectColon
+				return x, nil
+			}
+			fallthrough
+
+		default:
+			if !dec.tokenValueAllowed() {
+				return dec.tokenError(c)
+			}
+			var x any
+			if err := dec.Decode(&amp;x); err != nil {
+				return nil, err
+			}
+			return x, nil
+		}
+	}
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.Token.png" alt="Control flow graph of Token">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) tokenError(c byte) (Token, error) {
+	var context string
+	switch dec.tokenState {
+	case tokenTopValue:
+		context = &#34; looking for beginning of value&#34;
+	case tokenArrayStart, tokenArrayValue, tokenObjectValue:
+		context = &#34; looking for beginning of value&#34;
+	case tokenArrayComma:
+		context = &#34; after array element&#34;
+	case tokenObjectKey:
+		context = &#34; looking for beginning of object key string&#34;
+	case tokenObjectColon:
+		context = &#34; after object key&#34;
+	case tokenObjectComma:
+		context = &#34; after object key:value pair&#34;
+	}
+	return nil, &amp;SyntaxError{&#34;invalid character &#34; &#43; quoteChar(c) &#43; context, dec.InputOffset()}
+}
+
+// More reports whether there is another element in the
+// current array or object being parsed.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.tokenError.png" alt="Control flow graph of tokenError">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) More() bool {
+	c, err := dec.peek()
+	return err == nil &amp;&amp; c != &#39;]&#39; &amp;&amp; c != &#39;}&#39;
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.More.png" alt="Control flow graph of More">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) peek() (byte, error) {
+	var err error
+	for {
+		for i := dec.scanp; i &lt; len(dec.buf); i&#43;&#43; {
+			c := dec.buf[i]
+			if isSpace(c) {
+				continue
+			}
+			dec.scanp = i
+			return c, nil
+		}
+		// buffer has been scanned, now report any error
+		if err != nil {
+			return 0, err
+		}
+		err = dec.refill()
+	}
+}
+
+// InputOffset returns the input stream byte offset of the current decoder position.
+// The offset gives the location of the end of the most recently returned token
+// and the beginning of the next token.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.peek.png" alt="Control flow graph of peek">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (dec *Decoder) InputOffset() int64 {
+	return dec.scanned &#43; int64(dec.scanp)
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="stream.go._.InputOffset.png" alt="Control flow graph of InputOffset">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>

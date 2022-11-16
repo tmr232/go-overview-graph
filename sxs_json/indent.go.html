@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>indent.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>indent.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package json
+
+import (
+	&#34;bytes&#34;
+)
+
+// Compact appends to dst the JSON-encoded src with
+// insignificant space characters elided.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Compact(dst *bytes.Buffer, src []byte) error {
+	return compact(dst, src, false)
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="indent.go._.Compact.png" alt="Control flow graph of Compact">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func compact(dst *bytes.Buffer, src []byte, escape bool) error {
+	origLen := dst.Len()
+	scan := newScanner()
+	defer freeScanner(scan)
+	start := 0
+	for i, c := range src {
+		if escape &amp;&amp; (c == &#39;&lt;&#39; || c == &#39;&gt;&#39; || c == &#39;&amp;&#39;) {
+			if start &lt; i {
+				dst.Write(src[start:i])
+			}
+			dst.WriteString(`\u00`)
+			dst.WriteByte(hex[c&gt;&gt;4])
+			dst.WriteByte(hex[c&amp;0xF])
+			start = i &#43; 1
+		}
+		// Convert U&#43;2028 and U&#43;2029 (E2 80 A8 and E2 80 A9).
+		if escape &amp;&amp; c == 0xE2 &amp;&amp; i&#43;2 &lt; len(src) &amp;&amp; src[i&#43;1] == 0x80 &amp;&amp; src[i&#43;2]&amp;^1 == 0xA8 {
+			if start &lt; i {
+				dst.Write(src[start:i])
+			}
+			dst.WriteString(`\u202`)
+			dst.WriteByte(hex[src[i&#43;2]&amp;0xF])
+			start = i &#43; 3
+		}
+		v := scan.step(scan, c)
+		if v &gt;= scanSkipSpace {
+			if v == scanError {
+				break
+			}
+			if start &lt; i {
+				dst.Write(src[start:i])
+			}
+			start = i &#43; 1
+		}
+	}
+	if scan.eof() == scanError {
+		dst.Truncate(origLen)
+		return scan.err
+	}
+	if start &lt; len(src) {
+		dst.Write(src[start:])
+	}
+	return nil
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="indent.go._.compact.png" alt="Control flow graph of compact">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func newline(dst *bytes.Buffer, prefix, indent string, depth int) {
+	dst.WriteByte(&#39;\n&#39;)
+	dst.WriteString(prefix)
+	for i := 0; i &lt; depth; i&#43;&#43; {
+		dst.WriteString(indent)
+	}
+}
+
+// Indent appends to dst an indented form of the JSON-encoded src.
+// Each element in a JSON object or array begins on a new,
+// indented line beginning with prefix followed by one or more
+// copies of indent according to the indentation nesting.
+// The data appended to dst does not begin with the prefix nor
+// any indentation, to make it easier to embed inside other formatted JSON data.
+// Although leading space characters (space, tab, carriage return, newline)
+// at the beginning of src are dropped, trailing space characters
+// at the end of src are preserved and copied to dst.
+// For example, if src has no trailing spaces, neither will dst;
+// if src ends in a trailing newline, so will dst.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="indent.go._.newline.png" alt="Control flow graph of newline">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Indent(dst *bytes.Buffer, src []byte, prefix, indent string) error {
+	origLen := dst.Len()
+	scan := newScanner()
+	defer freeScanner(scan)
+	needIndent := false
+	depth := 0
+	for _, c := range src {
+		scan.bytes&#43;&#43;
+		v := scan.step(scan, c)
+		if v == scanSkipSpace {
+			continue
+		}
+		if v == scanError {
+			break
+		}
+		if needIndent &amp;&amp; v != scanEndObject &amp;&amp; v != scanEndArray {
+			needIndent = false
+			depth&#43;&#43;
+			newline(dst, prefix, indent, depth)
+		}
+
+		// Emit semantically uninteresting bytes
+		// (in particular, punctuation in strings) unmodified.
+		if v == scanContinue {
+			dst.WriteByte(c)
+			continue
+		}
+
+		// Add spacing around real punctuation.
+		switch c {
+		case &#39;{&#39;, &#39;[&#39;:
+			// delay indent so that empty object and array are formatted as {} and [].
+			needIndent = true
+			dst.WriteByte(c)
+
+		case &#39;,&#39;:
+			dst.WriteByte(c)
+			newline(dst, prefix, indent, depth)
+
+		case &#39;:&#39;:
+			dst.WriteByte(c)
+			dst.WriteByte(&#39; &#39;)
+
+		case &#39;}&#39;, &#39;]&#39;:
+			if needIndent {
+				// suppress indent in empty object/array
+				needIndent = false
+			} else {
+				depth--
+				newline(dst, prefix, indent, depth)
+			}
+			dst.WriteByte(c)
+
+		default:
+			dst.WriteByte(c)
+		}
+	}
+	if scan.eof() == scanError {
+		dst.Truncate(origLen)
+		return scan.err
+	}
+	return nil
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="indent.go._.Indent.png" alt="Control flow graph of Indent">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>

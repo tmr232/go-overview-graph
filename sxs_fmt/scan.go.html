@@ -1,0 +1,1924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>scan.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>scan.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package fmt
+
+import (
+	&#34;errors&#34;
+	&#34;io&#34;
+	&#34;math&#34;
+	&#34;os&#34;
+	&#34;reflect&#34;
+	&#34;strconv&#34;
+	&#34;sync&#34;
+	&#34;unicode/utf8&#34;
+)
+
+// ScanState represents the scanner state passed to custom scanners.
+// Scanners may do rune-at-a-time scanning or ask the ScanState
+// to discover the next space-delimited token.
+type ScanState interface {
+	// ReadRune reads the next rune (Unicode code point) from the input.
+	// If invoked during Scanln, Fscanln, or Sscanln, ReadRune() will
+	// return EOF after returning the first &#39;\n&#39; or when reading beyond
+	// the specified width.
+	ReadRune() (r rune, size int, err error)
+	// UnreadRune causes the next call to ReadRune to return the same rune.
+	UnreadRune() error
+	// SkipSpace skips space in the input. Newlines are treated appropriately
+	// for the operation being performed; see the package documentation
+	// for more information.
+	SkipSpace()
+	// Token skips space in the input if skipSpace is true, then returns the
+	// run of Unicode code points c satisfying f(c).  If f is nil,
+	// !unicode.IsSpace(c) is used; that is, the token will hold non-space
+	// characters. Newlines are treated appropriately for the operation being
+	// performed; see the package documentation for more information.
+	// The returned slice points to shared data that may be overwritten
+	// by the next call to Token, a call to a Scan function using the ScanState
+	// as input, or when the calling Scan method returns.
+	Token(skipSpace bool, f func(rune) bool) (token []byte, err error)
+	// Width returns the value of the width option and whether it has been set.
+	// The unit is Unicode code points.
+	Width() (wid int, ok bool)
+	// Because ReadRune is implemented by the interface, Read should never be
+	// called by the scanning routines and a valid implementation of
+	// ScanState may choose always to return an error from Read.
+	Read(buf []byte) (n int, err error)
+}
+
+// Scanner is implemented by any value that has a Scan method, which scans
+// the input for the representation of a value and stores the result in the
+// receiver, which must be a pointer to be useful. The Scan method is called
+// for any argument to Scan, Scanf, or Scanln that implements it.
+type Scanner interface {
+	Scan(state ScanState, verb rune) error
+}
+
+// Scan scans text read from standard input, storing successive
+// space-separated values into successive arguments. Newlines count
+// as space. It returns the number of items successfully scanned.
+// If that is less than the number of arguments, err will report why.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Scan(a ...any) (n int, err error) {
+	return Fscan(os.Stdin, a...)
+}
+
+// Scanln is similar to Scan, but stops scanning at a newline and
+// after the final item there must be a newline or EOF.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Scan.png" alt="Control flow graph of Scan">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Scanln(a ...any) (n int, err error) {
+	return Fscanln(os.Stdin, a...)
+}
+
+// Scanf scans text read from standard input, storing successive
+// space-separated values into successive arguments as determined by
+// the format. It returns the number of items successfully scanned.
+// If that is less than the number of arguments, err will report why.
+// Newlines in the input must match newlines in the format.
+// The one exception: the verb %c always scans the next rune in the
+// input, even if it is a space (or tab etc.) or newline.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Scanln.png" alt="Control flow graph of Scanln">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Scanf(format string, a ...any) (n int, err error) {
+	return Fscanf(os.Stdin, format, a...)
+}
+
+type stringReader string
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Scanf.png" alt="Control flow graph of Scanf">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (r *stringReader) Read(b []byte) (n int, err error) {
+	n = copy(b, *r)
+	*r = (*r)[n:]
+	if n == 0 {
+		err = io.EOF
+	}
+	return
+}
+
+// Sscan scans the argument string, storing successive space-separated
+// values into successive arguments. Newlines count as space. It
+// returns the number of items successfully scanned. If that is less
+// than the number of arguments, err will report why.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Read.png" alt="Control flow graph of Read">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Sscan(str string, a ...any) (n int, err error) {
+	return Fscan((*stringReader)(&amp;str), a...)
+}
+
+// Sscanln is similar to Sscan, but stops scanning at a newline and
+// after the final item there must be a newline or EOF.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Sscan.png" alt="Control flow graph of Sscan">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Sscanln(str string, a ...any) (n int, err error) {
+	return Fscanln((*stringReader)(&amp;str), a...)
+}
+
+// Sscanf scans the argument string, storing successive space-separated
+// values into successive arguments as determined by the format. It
+// returns the number of items successfully parsed.
+// Newlines in the input must match newlines in the format.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Sscanln.png" alt="Control flow graph of Sscanln">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Sscanf(str string, format string, a ...any) (n int, err error) {
+	return Fscanf((*stringReader)(&amp;str), format, a...)
+}
+
+// Fscan scans text read from r, storing successive space-separated
+// values into successive arguments. Newlines count as space. It
+// returns the number of items successfully scanned. If that is less
+// than the number of arguments, err will report why.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Sscanf.png" alt="Control flow graph of Sscanf">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Fscan(r io.Reader, a ...any) (n int, err error) {
+	s, old := newScanState(r, true, false)
+	n, err = s.doScan(a)
+	s.free(old)
+	return
+}
+
+// Fscanln is similar to Fscan, but stops scanning at a newline and
+// after the final item there must be a newline or EOF.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Fscan.png" alt="Control flow graph of Fscan">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Fscanln(r io.Reader, a ...any) (n int, err error) {
+	s, old := newScanState(r, false, true)
+	n, err = s.doScan(a)
+	s.free(old)
+	return
+}
+
+// Fscanf scans text read from r, storing successive space-separated
+// values into successive arguments as determined by the format. It
+// returns the number of items successfully parsed.
+// Newlines in the input must match newlines in the format.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Fscanln.png" alt="Control flow graph of Fscanln">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func Fscanf(r io.Reader, format string, a ...any) (n int, err error) {
+	s, old := newScanState(r, false, false)
+	n, err = s.doScanf(format, a)
+	s.free(old)
+	return
+}
+
+// scanError represents an error generated by the scanning software.
+// It&#39;s used as a unique signature to identify such errors when recovering.
+type scanError struct {
+	err error
+}
+
+const eof = -1
+
+// ss is the internal implementation of ScanState.
+type ss struct {
+	rs    io.RuneScanner // where to read input
+	buf   buffer         // token accumulator
+	count int            // runes consumed so far.
+	atEOF bool           // already read EOF
+	ssave
+}
+
+// ssave holds the parts of ss that need to be
+// saved and restored on recursive scans.
+type ssave struct {
+	validSave bool // is or was a part of an actual ss.
+	nlIsEnd   bool // whether newline terminates scan
+	nlIsSpace bool // whether newline counts as white space
+	argLimit  int  // max value of ss.count for this arg; argLimit &lt;= limit
+	limit     int  // max value of ss.count.
+	maxWid    int  // width of this arg.
+}
+
+// The Read method is only in ScanState so that ScanState
+// satisfies io.Reader. It will never be called when used as
+// intended, so there is no need to make it actually work.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Fscanf.png" alt="Control flow graph of Fscanf">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) Read(buf []byte) (n int, err error) {
+	return 0, errors.New(&#34;ScanState&#39;s Read should not be called. Use ReadRune&#34;)
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Read.png" alt="Control flow graph of Read">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) ReadRune() (r rune, size int, err error) {
+	if s.atEOF || s.count &gt;= s.argLimit {
+		err = io.EOF
+		return
+	}
+
+	r, size, err = s.rs.ReadRune()
+	if err == nil {
+		s.count&#43;&#43;
+		if s.nlIsEnd &amp;&amp; r == &#39;\n&#39; {
+			s.atEOF = true
+		}
+	} else if err == io.EOF {
+		s.atEOF = true
+	}
+	return
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.ReadRune.png" alt="Control flow graph of ReadRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) Width() (wid int, ok bool) {
+	if s.maxWid == hugeWid {
+		return 0, false
+	}
+	return s.maxWid, true
+}
+
+// The public method returns an error; this private one panics.
+// If getRune reaches EOF, the return value is EOF (-1).
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Width.png" alt="Control flow graph of Width">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) getRune() (r rune) {
+	r, _, err := s.ReadRune()
+	if err != nil {
+		if err == io.EOF {
+			return eof
+		}
+		s.error(err)
+	}
+	return
+}
+
+// mustReadRune turns io.EOF into a panic(io.ErrUnexpectedEOF).
+// It is called in cases such as string scanning where an EOF is a
+// syntax error.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.getRune.png" alt="Control flow graph of getRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) mustReadRune() (r rune) {
+	r = s.getRune()
+	if r == eof {
+		s.error(io.ErrUnexpectedEOF)
+	}
+	return
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.mustReadRune.png" alt="Control flow graph of mustReadRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) UnreadRune() error {
+	s.rs.UnreadRune()
+	s.atEOF = false
+	s.count--
+	return nil
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.UnreadRune.png" alt="Control flow graph of UnreadRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) error(err error) {
+	panic(scanError{err})
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.error.png" alt="Control flow graph of error">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) errorString(err string) {
+	panic(scanError{errors.New(err)})
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.errorString.png" alt="Control flow graph of errorString">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) Token(skipSpace bool, f func(rune) bool) (tok []byte, err error) {
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Token.png" alt="Control flow graph of Token">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>	defer func() {
+		if e := recover(); e != nil {
+			if se, ok := e.(scanError); ok {
+				err = se.err
+			} else {
+				panic(e)
+			}
+		}
+	}()
+	if f == nil {
+		f = notSpace
+	}
+	s.buf = s.buf[:0]
+	tok = s.token(skipSpace, f)
+	return
+}
+
+// space is a copy of the unicode.White_Space ranges,
+// to avoid depending on package unicode.
+var space = [][2]uint16{
+	{0x0009, 0x000d},
+	{0x0020, 0x0020},
+	{0x0085, 0x0085},
+	{0x00a0, 0x00a0},
+	{0x1680, 0x1680},
+	{0x2000, 0x200a},
+	{0x2028, 0x2029},
+	{0x202f, 0x202f},
+	{0x205f, 0x205f},
+	{0x3000, 0x3000},
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.Token$1.png" alt="Control flow graph of Token$1">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func isSpace(r rune) bool {
+	if r &gt;= 1&lt;&lt;16 {
+		return false
+	}
+	rx := uint16(r)
+	for _, rng := range space {
+		if rx &lt; rng[0] {
+			return false
+		}
+		if rx &lt;= rng[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// notSpace is the default scanning function used in Token.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.isSpace.png" alt="Control flow graph of isSpace">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func notSpace(r rune) bool {
+	return !isSpace(r)
+}
+
+// readRune is a structure to enable reading UTF-8 encoded code points
+// from an io.Reader. It is used if the Reader given to the scanner does
+// not already implement io.RuneScanner.
+type readRune struct {
+	reader   io.Reader
+	buf      [utf8.UTFMax]byte // used only inside ReadRune
+	pending  int               // number of bytes in pendBuf; only &gt;0 for bad UTF-8
+	pendBuf  [utf8.UTFMax]byte // bytes left over
+	peekRune rune              // if &gt;=0 next rune; when &lt;0 is ^(previous Rune)
+}
+
+// readByte returns the next byte from the input, which may be
+// left over from a previous read if the UTF-8 was ill-formed.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.notSpace.png" alt="Control flow graph of notSpace">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (r *readRune) readByte() (b byte, err error) {
+	if r.pending &gt; 0 {
+		b = r.pendBuf[0]
+		copy(r.pendBuf[0:], r.pendBuf[1:])
+		r.pending--
+		return
+	}
+	n, err := io.ReadFull(r.reader, r.pendBuf[:1])
+	if n != 1 {
+		return 0, err
+	}
+	return r.pendBuf[0], err
+}
+
+// ReadRune returns the next UTF-8 encoded code point from the
+// io.Reader inside r.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.readByte.png" alt="Control flow graph of readByte">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (r *readRune) ReadRune() (rr rune, size int, err error) {
+	if r.peekRune &gt;= 0 {
+		rr = r.peekRune
+		r.peekRune = ^r.peekRune
+		size = utf8.RuneLen(rr)
+		return
+	}
+	r.buf[0], err = r.readByte()
+	if err != nil {
+		return
+	}
+	if r.buf[0] &lt; utf8.RuneSelf { // fast check for common ASCII case
+		rr = rune(r.buf[0])
+		size = 1 // Known to be 1.
+		// Flip the bits of the rune so it&#39;s available to UnreadRune.
+		r.peekRune = ^rr
+		return
+	}
+	var n int
+	for n = 1; !utf8.FullRune(r.buf[:n]); n&#43;&#43; {
+		r.buf[n], err = r.readByte()
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+				break
+			}
+			return
+		}
+	}
+	rr, size = utf8.DecodeRune(r.buf[:n])
+	if size &lt; n { // an error, save the bytes for the next read
+		copy(r.pendBuf[r.pending:], r.buf[size:n])
+		r.pending &#43;= n - size
+	}
+	// Flip the bits of the rune so it&#39;s available to UnreadRune.
+	r.peekRune = ^rr
+	return
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.ReadRune.png" alt="Control flow graph of ReadRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (r *readRune) UnreadRune() error {
+	if r.peekRune &gt;= 0 {
+		return errors.New(&#34;fmt: scanning called UnreadRune with no rune available&#34;)
+	}
+	// Reverse bit flip of previously read rune to obtain valid &gt;=0 state.
+	r.peekRune = ^r.peekRune
+	return nil
+}
+
+var ssFree = sync.Pool{
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.UnreadRune.png" alt="Control flow graph of UnreadRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>	New: func() any { return new(ss) },
+}
+
+// newScanState allocates a new ss struct or grab a cached one.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.init$2.png" alt="Control flow graph of init$2">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func newScanState(r io.Reader, nlIsSpace, nlIsEnd bool) (s *ss, old ssave) {
+	s = ssFree.Get().(*ss)
+	if rs, ok := r.(io.RuneScanner); ok {
+		s.rs = rs
+	} else {
+		s.rs = &amp;readRune{reader: r, peekRune: -1}
+	}
+	s.nlIsSpace = nlIsSpace
+	s.nlIsEnd = nlIsEnd
+	s.atEOF = false
+	s.limit = hugeWid
+	s.argLimit = hugeWid
+	s.maxWid = hugeWid
+	s.validSave = true
+	s.count = 0
+	return
+}
+
+// free saves used ss structs in ssFree; avoid an allocation per invocation.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.newScanState.png" alt="Control flow graph of newScanState">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) free(old ssave) {
+	// If it was used recursively, just restore the old state.
+	if old.validSave {
+		s.ssave = old
+		return
+	}
+	// Don&#39;t hold on to ss structs with large buffers.
+	if cap(s.buf) &gt; 1024 {
+		return
+	}
+	s.buf = s.buf[:0]
+	s.rs = nil
+	ssFree.Put(s)
+}
+
+// SkipSpace provides Scan methods the ability to skip space and newline
+// characters in keeping with the current scanning mode set by format strings
+// and Scan/Scanln.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.free.png" alt="Control flow graph of free">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) SkipSpace() {
+	for {
+		r := s.getRune()
+		if r == eof {
+			return
+		}
+		if r == &#39;\r&#39; &amp;&amp; s.peek(&#34;\n&#34;) {
+			continue
+		}
+		if r == &#39;\n&#39; {
+			if s.nlIsSpace {
+				continue
+			}
+			s.errorString(&#34;unexpected newline&#34;)
+			return
+		}
+		if !isSpace(r) {
+			s.UnreadRune()
+			break
+		}
+	}
+}
+
+// token returns the next space-delimited string from the input. It
+// skips white space. For Scanln, it stops at newlines. For Scan,
+// newlines are treated as spaces.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.SkipSpace.png" alt="Control flow graph of SkipSpace">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) token(skipSpace bool, f func(rune) bool) []byte {
+	if skipSpace {
+		s.SkipSpace()
+	}
+	// read until white space or newline
+	for {
+		r := s.getRune()
+		if r == eof {
+			break
+		}
+		if !f(r) {
+			s.UnreadRune()
+			break
+		}
+		s.buf.writeRune(r)
+	}
+	return s.buf
+}
+
+var complexError = errors.New(&#34;syntax error scanning complex number&#34;)
+var boolError = errors.New(&#34;syntax error scanning boolean&#34;)
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.token.png" alt="Control flow graph of token">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func indexRune(s string, r rune) int {
+	for i, c := range s {
+		if c == r {
+			return i
+		}
+	}
+	return -1
+}
+
+// consume reads the next rune in the input and reports whether it is in the ok string.
+// If accept is true, it puts the character into the input token.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.indexRune.png" alt="Control flow graph of indexRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) consume(ok string, accept bool) bool {
+	r := s.getRune()
+	if r == eof {
+		return false
+	}
+	if indexRune(ok, r) &gt;= 0 {
+		if accept {
+			s.buf.writeRune(r)
+		}
+		return true
+	}
+	if r != eof &amp;&amp; accept {
+		s.UnreadRune()
+	}
+	return false
+}
+
+// peek reports whether the next character is in the ok string, without consuming it.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.consume.png" alt="Control flow graph of consume">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) peek(ok string) bool {
+	r := s.getRune()
+	if r != eof {
+		s.UnreadRune()
+	}
+	return indexRune(ok, r) &gt;= 0
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.peek.png" alt="Control flow graph of peek">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) notEOF() {
+	// Guarantee there is data to be read.
+	if r := s.getRune(); r == eof {
+		panic(io.EOF)
+	}
+	s.UnreadRune()
+}
+
+// accept checks the next rune in the input. If it&#39;s a byte (sic) in the string, it puts it in the
+// buffer and returns true. Otherwise it return false.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.notEOF.png" alt="Control flow graph of notEOF">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) accept(ok string) bool {
+	return s.consume(ok, true)
+}
+
+// okVerb verifies that the verb is present in the list, setting s.err appropriately if not.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.accept.png" alt="Control flow graph of accept">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) okVerb(verb rune, okVerbs, typ string) bool {
+	for _, v := range okVerbs {
+		if v == verb {
+			return true
+		}
+	}
+	s.errorString(&#34;bad verb &#39;%&#34; &#43; string(verb) &#43; &#34;&#39; for &#34; &#43; typ)
+	return false
+}
+
+// scanBool returns the value of the boolean represented by the next token.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.okVerb.png" alt="Control flow graph of okVerb">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanBool(verb rune) bool {
+	s.SkipSpace()
+	s.notEOF()
+	if !s.okVerb(verb, &#34;tv&#34;, &#34;boolean&#34;) {
+		return false
+	}
+	// Syntax-checking a boolean is annoying. We&#39;re not fastidious about case.
+	switch s.getRune() {
+	case &#39;0&#39;:
+		return false
+	case &#39;1&#39;:
+		return true
+	case &#39;t&#39;, &#39;T&#39;:
+		if s.accept(&#34;rR&#34;) &amp;&amp; (!s.accept(&#34;uU&#34;) || !s.accept(&#34;eE&#34;)) {
+			s.error(boolError)
+		}
+		return true
+	case &#39;f&#39;, &#39;F&#39;:
+		if s.accept(&#34;aA&#34;) &amp;&amp; (!s.accept(&#34;lL&#34;) || !s.accept(&#34;sS&#34;) || !s.accept(&#34;eE&#34;)) {
+			s.error(boolError)
+		}
+		return false
+	}
+	return false
+}
+
+// Numerical elements
+const (
+	binaryDigits      = &#34;01&#34;
+	octalDigits       = &#34;01234567&#34;
+	decimalDigits     = &#34;0123456789&#34;
+	hexadecimalDigits = &#34;0123456789aAbBcCdDeEfF&#34;
+	sign              = &#34;&#43;-&#34;
+	period            = &#34;.&#34;
+	exponent          = &#34;eEpP&#34;
+)
+
+// getBase returns the numeric base represented by the verb and its digit string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanBool.png" alt="Control flow graph of scanBool">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) getBase(verb rune) (base int, digits string) {
+	s.okVerb(verb, &#34;bdoUxXv&#34;, &#34;integer&#34;) // sets s.err
+	base = 10
+	digits = decimalDigits
+	switch verb {
+	case &#39;b&#39;:
+		base = 2
+		digits = binaryDigits
+	case &#39;o&#39;:
+		base = 8
+		digits = octalDigits
+	case &#39;x&#39;, &#39;X&#39;, &#39;U&#39;:
+		base = 16
+		digits = hexadecimalDigits
+	}
+	return
+}
+
+// scanNumber returns the numerical string with specified digits starting here.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.getBase.png" alt="Control flow graph of getBase">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanNumber(digits string, haveDigits bool) string {
+	if !haveDigits {
+		s.notEOF()
+		if !s.accept(digits) {
+			s.errorString(&#34;expected integer&#34;)
+		}
+	}
+	for s.accept(digits) {
+	}
+	return string(s.buf)
+}
+
+// scanRune returns the next rune value in the input.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanNumber.png" alt="Control flow graph of scanNumber">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanRune(bitSize int) int64 {
+	s.notEOF()
+	r := s.getRune()
+	n := uint(bitSize)
+	x := (int64(r) &lt;&lt; (64 - n)) &gt;&gt; (64 - n)
+	if x != int64(r) {
+		s.errorString(&#34;overflow on character value &#34; &#43; string(r))
+	}
+	return int64(r)
+}
+
+// scanBasePrefix reports whether the integer begins with a base prefix
+// and returns the base, digit string, and whether a zero was found.
+// It is called only if the verb is %v.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanRune.png" alt="Control flow graph of scanRune">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanBasePrefix() (base int, digits string, zeroFound bool) {
+	if !s.peek(&#34;0&#34;) {
+		return 0, decimalDigits &#43; &#34;_&#34;, false
+	}
+	s.accept(&#34;0&#34;)
+	// Special cases for 0, 0b, 0o, 0x.
+	switch {
+	case s.peek(&#34;bB&#34;):
+		s.consume(&#34;bB&#34;, true)
+		return 0, binaryDigits &#43; &#34;_&#34;, true
+	case s.peek(&#34;oO&#34;):
+		s.consume(&#34;oO&#34;, true)
+		return 0, octalDigits &#43; &#34;_&#34;, true
+	case s.peek(&#34;xX&#34;):
+		s.consume(&#34;xX&#34;, true)
+		return 0, hexadecimalDigits &#43; &#34;_&#34;, true
+	default:
+		return 0, octalDigits &#43; &#34;_&#34;, true
+	}
+}
+
+// scanInt returns the value of the integer represented by the next
+// token, checking for overflow. Any error is stored in s.err.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanBasePrefix.png" alt="Control flow graph of scanBasePrefix">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanInt(verb rune, bitSize int) int64 {
+	if verb == &#39;c&#39; {
+		return s.scanRune(bitSize)
+	}
+	s.SkipSpace()
+	s.notEOF()
+	base, digits := s.getBase(verb)
+	haveDigits := false
+	if verb == &#39;U&#39; {
+		if !s.consume(&#34;U&#34;, false) || !s.consume(&#34;&#43;&#34;, false) {
+			s.errorString(&#34;bad unicode format &#34;)
+		}
+	} else {
+		s.accept(sign) // If there&#39;s a sign, it will be left in the token buffer.
+		if verb == &#39;v&#39; {
+			base, digits, haveDigits = s.scanBasePrefix()
+		}
+	}
+	tok := s.scanNumber(digits, haveDigits)
+	i, err := strconv.ParseInt(tok, base, 64)
+	if err != nil {
+		s.error(err)
+	}
+	n := uint(bitSize)
+	x := (i &lt;&lt; (64 - n)) &gt;&gt; (64 - n)
+	if x != i {
+		s.errorString(&#34;integer overflow on token &#34; &#43; tok)
+	}
+	return i
+}
+
+// scanUint returns the value of the unsigned integer represented
+// by the next token, checking for overflow. Any error is stored in s.err.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanInt.png" alt="Control flow graph of scanInt">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanUint(verb rune, bitSize int) uint64 {
+	if verb == &#39;c&#39; {
+		return uint64(s.scanRune(bitSize))
+	}
+	s.SkipSpace()
+	s.notEOF()
+	base, digits := s.getBase(verb)
+	haveDigits := false
+	if verb == &#39;U&#39; {
+		if !s.consume(&#34;U&#34;, false) || !s.consume(&#34;&#43;&#34;, false) {
+			s.errorString(&#34;bad unicode format &#34;)
+		}
+	} else if verb == &#39;v&#39; {
+		base, digits, haveDigits = s.scanBasePrefix()
+	}
+	tok := s.scanNumber(digits, haveDigits)
+	i, err := strconv.ParseUint(tok, base, 64)
+	if err != nil {
+		s.error(err)
+	}
+	n := uint(bitSize)
+	x := (i &lt;&lt; (64 - n)) &gt;&gt; (64 - n)
+	if x != i {
+		s.errorString(&#34;unsigned integer overflow on token &#34; &#43; tok)
+	}
+	return i
+}
+
+// floatToken returns the floating-point number starting here, no longer than swid
+// if the width is specified. It&#39;s not rigorous about syntax because it doesn&#39;t check that
+// we have at least some digits, but Atof will do that.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanUint.png" alt="Control flow graph of scanUint">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) floatToken() string {
+	s.buf = s.buf[:0]
+	// NaN?
+	if s.accept(&#34;nN&#34;) &amp;&amp; s.accept(&#34;aA&#34;) &amp;&amp; s.accept(&#34;nN&#34;) {
+		return string(s.buf)
+	}
+	// leading sign?
+	s.accept(sign)
+	// Inf?
+	if s.accept(&#34;iI&#34;) &amp;&amp; s.accept(&#34;nN&#34;) &amp;&amp; s.accept(&#34;fF&#34;) {
+		return string(s.buf)
+	}
+	digits := decimalDigits &#43; &#34;_&#34;
+	exp := exponent
+	if s.accept(&#34;0&#34;) &amp;&amp; s.accept(&#34;xX&#34;) {
+		digits = hexadecimalDigits &#43; &#34;_&#34;
+		exp = &#34;pP&#34;
+	}
+	// digits?
+	for s.accept(digits) {
+	}
+	// decimal point?
+	if s.accept(period) {
+		// fraction?
+		for s.accept(digits) {
+		}
+	}
+	// exponent?
+	if s.accept(exp) {
+		// leading sign?
+		s.accept(sign)
+		// digits?
+		for s.accept(decimalDigits &#43; &#34;_&#34;) {
+		}
+	}
+	return string(s.buf)
+}
+
+// complexTokens returns the real and imaginary parts of the complex number starting here.
+// The number might be parenthesized and has the format (N&#43;Ni) where N is a floating-point
+// number and there are no spaces within.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.floatToken.png" alt="Control flow graph of floatToken">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) complexTokens() (real, imag string) {
+	// TODO: accept N and Ni independently?
+	parens := s.accept(&#34;(&#34;)
+	real = s.floatToken()
+	s.buf = s.buf[:0]
+	// Must now have a sign.
+	if !s.accept(&#34;&#43;-&#34;) {
+		s.error(complexError)
+	}
+	// Sign is now in buffer
+	imagSign := string(s.buf)
+	imag = s.floatToken()
+	if !s.accept(&#34;i&#34;) {
+		s.error(complexError)
+	}
+	if parens &amp;&amp; !s.accept(&#34;)&#34;) {
+		s.error(complexError)
+	}
+	return real, imagSign &#43; imag
+}
+
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.complexTokens.png" alt="Control flow graph of complexTokens">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func hasX(s string) bool {
+	for i := 0; i &lt; len(s); i&#43;&#43; {
+		if s[i] == &#39;x&#39; || s[i] == &#39;X&#39; {
+			return true
+		}
+	}
+	return false
+}
+
+// convertFloat converts the string to a float64value.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.hasX.png" alt="Control flow graph of hasX">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) convertFloat(str string, n int) float64 {
+	// strconv.ParseFloat will handle &#34;&#43;0x1.fp&#43;2&#34;,
+	// but we have to implement our non-standard
+	// decimal&#43;binary exponent mix (1.2p4) ourselves.
+	if p := indexRune(str, &#39;p&#39;); p &gt;= 0 &amp;&amp; !hasX(str) {
+		// Atof doesn&#39;t handle power-of-2 exponents,
+		// but they&#39;re easy to evaluate.
+		f, err := strconv.ParseFloat(str[:p], n)
+		if err != nil {
+			// Put full string into error.
+			if e, ok := err.(*strconv.NumError); ok {
+				e.Num = str
+			}
+			s.error(err)
+		}
+		m, err := strconv.Atoi(str[p&#43;1:])
+		if err != nil {
+			// Put full string into error.
+			if e, ok := err.(*strconv.NumError); ok {
+				e.Num = str
+			}
+			s.error(err)
+		}
+		return math.Ldexp(f, m)
+	}
+	f, err := strconv.ParseFloat(str, n)
+	if err != nil {
+		s.error(err)
+	}
+	return f
+}
+
+// convertComplex converts the next token to a complex128 value.
+// The atof argument is a type-specific reader for the underlying type.
+// If we&#39;re reading complex64, atof will parse float32s and convert them
+// to float64&#39;s to avoid reproducing this code for each complex type.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.convertFloat.png" alt="Control flow graph of convertFloat">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanComplex(verb rune, n int) complex128 {
+	if !s.okVerb(verb, floatVerbs, &#34;complex&#34;) {
+		return 0
+	}
+	s.SkipSpace()
+	s.notEOF()
+	sreal, simag := s.complexTokens()
+	real := s.convertFloat(sreal, n/2)
+	imag := s.convertFloat(simag, n/2)
+	return complex(real, imag)
+}
+
+// convertString returns the string represented by the next input characters.
+// The format of the input is determined by the verb.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanComplex.png" alt="Control flow graph of scanComplex">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) convertString(verb rune) (str string) {
+	if !s.okVerb(verb, &#34;svqxX&#34;, &#34;string&#34;) {
+		return &#34;&#34;
+	}
+	s.SkipSpace()
+	s.notEOF()
+	switch verb {
+	case &#39;q&#39;:
+		str = s.quotedString()
+	case &#39;x&#39;, &#39;X&#39;:
+		str = s.hexString()
+	default:
+		str = string(s.token(true, notSpace)) // %s and %v just return the next word
+	}
+	return
+}
+
+// quotedString returns the double- or back-quoted string represented by the next input characters.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.convertString.png" alt="Control flow graph of convertString">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) quotedString() string {
+	s.notEOF()
+	quote := s.getRune()
+	switch quote {
+	case &#39;`&#39;:
+		// Back-quoted: Anything goes until EOF or back quote.
+		for {
+			r := s.mustReadRune()
+			if r == quote {
+				break
+			}
+			s.buf.writeRune(r)
+		}
+		return string(s.buf)
+	case &#39;&#34;&#39;:
+		// Double-quoted: Include the quotes and let strconv.Unquote do the backslash escapes.
+		s.buf.writeByte(&#39;&#34;&#39;)
+		for {
+			r := s.mustReadRune()
+			s.buf.writeRune(r)
+			if r == &#39;\\&#39; {
+				// In a legal backslash escape, no matter how long, only the character
+				// immediately after the escape can itself be a backslash or quote.
+				// Thus we only need to protect the first character after the backslash.
+				s.buf.writeRune(s.mustReadRune())
+			} else if r == &#39;&#34;&#39; {
+				break
+			}
+		}
+		result, err := strconv.Unquote(string(s.buf))
+		if err != nil {
+			s.error(err)
+		}
+		return result
+	default:
+		s.errorString(&#34;expected quoted string&#34;)
+	}
+	return &#34;&#34;
+}
+
+// hexDigit returns the value of the hexadecimal digit.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.quotedString.png" alt="Control flow graph of quotedString">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func hexDigit(d rune) (int, bool) {
+	digit := int(d)
+	switch digit {
+	case &#39;0&#39;, &#39;1&#39;, &#39;2&#39;, &#39;3&#39;, &#39;4&#39;, &#39;5&#39;, &#39;6&#39;, &#39;7&#39;, &#39;8&#39;, &#39;9&#39;:
+		return digit - &#39;0&#39;, true
+	case &#39;a&#39;, &#39;b&#39;, &#39;c&#39;, &#39;d&#39;, &#39;e&#39;, &#39;f&#39;:
+		return 10 &#43; digit - &#39;a&#39;, true
+	case &#39;A&#39;, &#39;B&#39;, &#39;C&#39;, &#39;D&#39;, &#39;E&#39;, &#39;F&#39;:
+		return 10 &#43; digit - &#39;A&#39;, true
+	}
+	return -1, false
+}
+
+// hexByte returns the next hex-encoded (two-character) byte from the input.
+// It returns ok==false if the next bytes in the input do not encode a hex byte.
+// If the first byte is hex and the second is not, processing stops.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.hexDigit.png" alt="Control flow graph of hexDigit">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) hexByte() (b byte, ok bool) {
+	rune1 := s.getRune()
+	if rune1 == eof {
+		return
+	}
+	value1, ok := hexDigit(rune1)
+	if !ok {
+		s.UnreadRune()
+		return
+	}
+	value2, ok := hexDigit(s.mustReadRune())
+	if !ok {
+		s.errorString(&#34;illegal hex digit&#34;)
+		return
+	}
+	return byte(value1&lt;&lt;4 | value2), true
+}
+
+// hexString returns the space-delimited hexpair-encoded string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.hexByte.png" alt="Control flow graph of hexByte">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) hexString() string {
+	s.notEOF()
+	for {
+		b, ok := s.hexByte()
+		if !ok {
+			break
+		}
+		s.buf.writeByte(b)
+	}
+	if len(s.buf) == 0 {
+		s.errorString(&#34;no hex data for %x string&#34;)
+		return &#34;&#34;
+	}
+	return string(s.buf)
+}
+
+const (
+	floatVerbs = &#34;beEfFgGv&#34;
+
+	hugeWid = 1 &lt;&lt; 30
+
+	intBits     = 32 &lt;&lt; (^uint(0) &gt;&gt; 63)
+	uintptrBits = 32 &lt;&lt; (^uintptr(0) &gt;&gt; 63)
+)
+
+// scanPercent scans a literal percent character.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.hexString.png" alt="Control flow graph of hexString">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanPercent() {
+	s.SkipSpace()
+	s.notEOF()
+	if !s.accept(&#34;%&#34;) {
+		s.errorString(&#34;missing literal %&#34;)
+	}
+}
+
+// scanOne scans a single value, deriving the scanner from the type of the argument.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanPercent.png" alt="Control flow graph of scanPercent">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) scanOne(verb rune, arg any) {
+	s.buf = s.buf[:0]
+	var err error
+	// If the parameter has its own Scan method, use that.
+	if v, ok := arg.(Scanner); ok {
+		err = v.Scan(s, verb)
+		if err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
+			s.error(err)
+		}
+		return
+	}
+
+	switch v := arg.(type) {
+	case *bool:
+		*v = s.scanBool(verb)
+	case *complex64:
+		*v = complex64(s.scanComplex(verb, 64))
+	case *complex128:
+		*v = s.scanComplex(verb, 128)
+	case *int:
+		*v = int(s.scanInt(verb, intBits))
+	case *int8:
+		*v = int8(s.scanInt(verb, 8))
+	case *int16:
+		*v = int16(s.scanInt(verb, 16))
+	case *int32:
+		*v = int32(s.scanInt(verb, 32))
+	case *int64:
+		*v = s.scanInt(verb, 64)
+	case *uint:
+		*v = uint(s.scanUint(verb, intBits))
+	case *uint8:
+		*v = uint8(s.scanUint(verb, 8))
+	case *uint16:
+		*v = uint16(s.scanUint(verb, 16))
+	case *uint32:
+		*v = uint32(s.scanUint(verb, 32))
+	case *uint64:
+		*v = s.scanUint(verb, 64)
+	case *uintptr:
+		*v = uintptr(s.scanUint(verb, uintptrBits))
+	// Floats are tricky because you want to scan in the precision of the result, not
+	// scan in high precision and convert, in order to preserve the correct error condition.
+	case *float32:
+		if s.okVerb(verb, floatVerbs, &#34;float32&#34;) {
+			s.SkipSpace()
+			s.notEOF()
+			*v = float32(s.convertFloat(s.floatToken(), 32))
+		}
+	case *float64:
+		if s.okVerb(verb, floatVerbs, &#34;float64&#34;) {
+			s.SkipSpace()
+			s.notEOF()
+			*v = s.convertFloat(s.floatToken(), 64)
+		}
+	case *string:
+		*v = s.convertString(verb)
+	case *[]byte:
+		// We scan to string and convert so we get a copy of the data.
+		// If we scanned to bytes, the slice would point at the buffer.
+		*v = []byte(s.convertString(verb))
+	default:
+		val := reflect.ValueOf(v)
+		ptr := val
+		if ptr.Kind() != reflect.Pointer {
+			s.errorString(&#34;type not a pointer: &#34; &#43; val.Type().String())
+			return
+		}
+		switch v := ptr.Elem(); v.Kind() {
+		case reflect.Bool:
+			v.SetBool(s.scanBool(verb))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			v.SetInt(s.scanInt(verb, v.Type().Bits()))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			v.SetUint(s.scanUint(verb, v.Type().Bits()))
+		case reflect.String:
+			v.SetString(s.convertString(verb))
+		case reflect.Slice:
+			// For now, can only handle (renamed) []byte.
+			typ := v.Type()
+			if typ.Elem().Kind() != reflect.Uint8 {
+				s.errorString(&#34;can&#39;t scan type: &#34; &#43; val.Type().String())
+			}
+			str := s.convertString(verb)
+			v.Set(reflect.MakeSlice(typ, len(str), len(str)))
+			for i := 0; i &lt; len(str); i&#43;&#43; {
+				v.Index(i).SetUint(uint64(str[i]))
+			}
+		case reflect.Float32, reflect.Float64:
+			s.SkipSpace()
+			s.notEOF()
+			v.SetFloat(s.convertFloat(s.floatToken(), v.Type().Bits()))
+		case reflect.Complex64, reflect.Complex128:
+			v.SetComplex(s.scanComplex(verb, v.Type().Bits()))
+		default:
+			s.errorString(&#34;can&#39;t scan type: &#34; &#43; val.Type().String())
+		}
+	}
+}
+
+// errorHandler turns local panics into error returns.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.scanOne.png" alt="Control flow graph of scanOne">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func errorHandler(errp *error) {
+	if e := recover(); e != nil {
+		if se, ok := e.(scanError); ok { // catch local error
+			*errp = se.err
+		} else if eof, ok := e.(error); ok &amp;&amp; eof == io.EOF { // out of input
+			*errp = eof
+		} else {
+			panic(e)
+		}
+	}
+}
+
+// doScan does the real work for scanning without a format string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.errorHandler.png" alt="Control flow graph of errorHandler">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) doScan(a []any) (numProcessed int, err error) {
+	defer errorHandler(&amp;err)
+	for _, arg := range a {
+		s.scanOne(&#39;v&#39;, arg)
+		numProcessed&#43;&#43;
+	}
+	// Check for newline (or EOF) if required (Scanln etc.).
+	if s.nlIsEnd {
+		for {
+			r := s.getRune()
+			if r == &#39;\n&#39; || r == eof {
+				break
+			}
+			if !isSpace(r) {
+				s.errorString(&#34;expected newline&#34;)
+				break
+			}
+		}
+	}
+	return
+}
+
+// advance determines whether the next characters in the input match
+// those of the format. It returns the number of bytes (sic) consumed
+// in the format. All runs of space characters in either input or
+// format behave as a single space. Newlines are special, though:
+// newlines in the format must match those in the input and vice versa.
+// This routine also handles the %% case. If the return value is zero,
+// either format starts with a % (with no following %) or the input
+// is empty. If it is negative, the input did not match the string.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.doScan.png" alt="Control flow graph of doScan">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) advance(format string) (i int) {
+	for i &lt; len(format) {
+		fmtc, w := utf8.DecodeRuneInString(format[i:])
+
+		// Space processing.
+		// In the rest of this comment &#34;space&#34; means spaces other than newline.
+		// Newline in the format matches input of zero or more spaces and then newline or end-of-input.
+		// Spaces in the format before the newline are collapsed into the newline.
+		// Spaces in the format after the newline match zero or more spaces after the corresponding input newline.
+		// Other spaces in the format match input of one or more spaces or end-of-input.
+		if isSpace(fmtc) {
+			newlines := 0
+			trailingSpace := false
+			for isSpace(fmtc) &amp;&amp; i &lt; len(format) {
+				if fmtc == &#39;\n&#39; {
+					newlines&#43;&#43;
+					trailingSpace = false
+				} else {
+					trailingSpace = true
+				}
+				i &#43;= w
+				fmtc, w = utf8.DecodeRuneInString(format[i:])
+			}
+			for j := 0; j &lt; newlines; j&#43;&#43; {
+				inputc := s.getRune()
+				for isSpace(inputc) &amp;&amp; inputc != &#39;\n&#39; {
+					inputc = s.getRune()
+				}
+				if inputc != &#39;\n&#39; &amp;&amp; inputc != eof {
+					s.errorString(&#34;newline in format does not match input&#34;)
+				}
+			}
+			if trailingSpace {
+				inputc := s.getRune()
+				if newlines == 0 {
+					// If the trailing space stood alone (did not follow a newline),
+					// it must find at least one space to consume.
+					if !isSpace(inputc) &amp;&amp; inputc != eof {
+						s.errorString(&#34;expected space in input to match format&#34;)
+					}
+					if inputc == &#39;\n&#39; {
+						s.errorString(&#34;newline in input does not match format&#34;)
+					}
+				}
+				for isSpace(inputc) &amp;&amp; inputc != &#39;\n&#39; {
+					inputc = s.getRune()
+				}
+				if inputc != eof {
+					s.UnreadRune()
+				}
+			}
+			continue
+		}
+
+		// Verbs.
+		if fmtc == &#39;%&#39; {
+			// % at end of string is an error.
+			if i&#43;w == len(format) {
+				s.errorString(&#34;missing verb: % at end of format string&#34;)
+			}
+			// %% acts like a real percent
+			nextc, _ := utf8.DecodeRuneInString(format[i&#43;w:]) // will not match % if string is empty
+			if nextc != &#39;%&#39; {
+				return
+			}
+			i &#43;= w // skip the first %
+		}
+
+		// Literals.
+		inputc := s.mustReadRune()
+		if fmtc != inputc {
+			s.UnreadRune()
+			return -1
+		}
+		i &#43;= w
+	}
+	return
+}
+
+// doScanf does the real work when scanning with a format string.
+// At the moment, it handles only pointers to basic types.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.advance.png" alt="Control flow graph of advance">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func (s *ss) doScanf(format string, a []any) (numProcessed int, err error) {
+	defer errorHandler(&amp;err)
+	end := len(format) - 1
+	// We process one item per non-trivial format
+	for i := 0; i &lt;= end; {
+		w := s.advance(format[i:])
+		if w &gt; 0 {
+			i &#43;= w
+			continue
+		}
+		// Either we failed to advance, we have a percent character, or we ran out of input.
+		if format[i] != &#39;%&#39; {
+			// Can&#39;t advance format. Why not?
+			if w &lt; 0 {
+				s.errorString(&#34;input does not match format&#34;)
+			}
+			// Otherwise at EOF; &#34;too many operands&#34; error handled below
+			break
+		}
+		i&#43;&#43; // % is one byte
+
+		// do we have 20 (width)?
+		var widPresent bool
+		s.maxWid, widPresent, i = parsenum(format, i, end)
+		if !widPresent {
+			s.maxWid = hugeWid
+		}
+
+		c, w := utf8.DecodeRuneInString(format[i:])
+		i &#43;= w
+
+		if c != &#39;c&#39; {
+			s.SkipSpace()
+		}
+		if c == &#39;%&#39; {
+			s.scanPercent()
+			continue // Do not consume an argument.
+		}
+		s.argLimit = s.limit
+		if f := s.count &#43; s.maxWid; f &lt; s.argLimit {
+			s.argLimit = f
+		}
+
+		if numProcessed &gt;= len(a) { // out of operands
+			s.errorString(&#34;too few operands for format &#39;%&#34; &#43; format[i-w:] &#43; &#34;&#39;&#34;)
+			break
+		}
+		arg := a[numProcessed]
+
+		s.scanOne(c, arg)
+		numProcessed&#43;&#43;
+		s.argLimit = s.limit
+	}
+	if numProcessed &lt; len(a) {
+		s.errorString(&#34;too many operands&#34;)
+	}
+	return
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="scan.go._.doScanf.png" alt="Control flow graph of doScanf">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>

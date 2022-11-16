@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>fold.go Graph Overview</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<h1>
+    File: <code>fold.go</code>
+</h1>
+<table>
+    
+        <tr>
+            <td>
+            <pre>// Copyright 2013 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package json
+
+import (
+	&#34;bytes&#34;
+	&#34;unicode/utf8&#34;
+)
+
+const (
+	caseMask     = ^byte(0x20) // Mask to ignore case in ASCII.
+	kelvin       = &#39;\u212a&#39;
+	smallLongEss = &#39;\u017f&#39;
+)
+
+// foldFunc returns one of four different case folding equivalence
+// functions, from most general (and slow) to fastest:
+//
+// 1) bytes.EqualFold, if the key s contains any non-ASCII UTF-8
+// 2) equalFoldRight, if s contains special folding ASCII (&#39;k&#39;, &#39;K&#39;, &#39;s&#39;, &#39;S&#39;)
+// 3) asciiEqualFold, no special, but includes non-letters (including _)
+// 4) simpleLetterEqualFold, no specials, no non-letters.
+//
+// The letters S and K are special because they map to 3 runes, not just 2:
+//  * S maps to s and to U&#43;017F &#39;ſ&#39; Latin small letter long s
+//  * k maps to K and to U&#43;212A &#39;K&#39; Kelvin sign
+// See https://play.golang.org/p/tTxjOc0OGo
+//
+// The returned function is specialized for matching against s and
+// should only be given s. It&#39;s not curried for performance reasons.
+</pre>
+            </td>
+            <td>
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func foldFunc(s []byte) func(s, t []byte) bool {
+	nonLetter := false
+	special := false // special letter
+	for _, b := range s {
+		if b &gt;= utf8.RuneSelf {
+			return bytes.EqualFold
+		}
+		upper := b &amp; caseMask
+		if upper &lt; &#39;A&#39; || upper &gt; &#39;Z&#39; {
+			nonLetter = true
+		} else if upper == &#39;K&#39; || upper == &#39;S&#39; {
+			// See above for why these letters are special.
+			special = true
+		}
+	}
+	if special {
+		return equalFoldRight
+	}
+	if nonLetter {
+		return asciiEqualFold
+	}
+	return simpleLetterEqualFold
+}
+
+// equalFoldRight is a specialization of bytes.EqualFold when s is
+// known to be all ASCII (including punctuation), but contains an &#39;s&#39;,
+// &#39;S&#39;, &#39;k&#39;, or &#39;K&#39;, requiring a Unicode fold on the bytes in t.
+// See comments on foldFunc.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="fold.go._.foldFunc.png" alt="Control flow graph of foldFunc">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func equalFoldRight(s, t []byte) bool {
+	for _, sb := range s {
+		if len(t) == 0 {
+			return false
+		}
+		tb := t[0]
+		if tb &lt; utf8.RuneSelf {
+			if sb != tb {
+				sbUpper := sb &amp; caseMask
+				if &#39;A&#39; &lt;= sbUpper &amp;&amp; sbUpper &lt;= &#39;Z&#39; {
+					if sbUpper != tb&amp;caseMask {
+						return false
+					}
+				} else {
+					return false
+				}
+			}
+			t = t[1:]
+			continue
+		}
+		// sb is ASCII and t is not. t must be either kelvin
+		// sign or long s; sb must be s, S, k, or K.
+		tr, size := utf8.DecodeRune(t)
+		switch sb {
+		case &#39;s&#39;, &#39;S&#39;:
+			if tr != smallLongEss {
+				return false
+			}
+		case &#39;k&#39;, &#39;K&#39;:
+			if tr != kelvin {
+				return false
+			}
+		default:
+			return false
+		}
+		t = t[size:]
+
+	}
+	if len(t) &gt; 0 {
+		return false
+	}
+	return true
+}
+
+// asciiEqualFold is a specialization of bytes.EqualFold for use when
+// s is all ASCII (but may contain non-letters) and contains no
+// special-folding letters.
+// See comments on foldFunc.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="fold.go._.equalFoldRight.png" alt="Control flow graph of equalFoldRight">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func asciiEqualFold(s, t []byte) bool {
+	if len(s) != len(t) {
+		return false
+	}
+	for i, sb := range s {
+		tb := t[i]
+		if sb == tb {
+			continue
+		}
+		if (&#39;a&#39; &lt;= sb &amp;&amp; sb &lt;= &#39;z&#39;) || (&#39;A&#39; &lt;= sb &amp;&amp; sb &lt;= &#39;Z&#39;) {
+			if sb&amp;caseMask != tb&amp;caseMask {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	return true
+}
+
+// simpleLetterEqualFold is a specialization of bytes.EqualFold for
+// use when s is all ASCII letters (no underscores, etc) and also
+// doesn&#39;t contain &#39;k&#39;, &#39;K&#39;, &#39;s&#39;, or &#39;S&#39;.
+// See comments on foldFunc.
+</pre>
+            </td>
+            <td>
+                
+                    <img src="fold.go._.asciiEqualFold.png" alt="Control flow graph of asciiEqualFold">
+                
+            </td>
+        </tr>
+    
+        <tr>
+            <td>
+            <pre>func simpleLetterEqualFold(s, t []byte) bool {
+	if len(s) != len(t) {
+		return false
+	}
+	for i, b := range s {
+		if b&amp;caseMask != t[i]&amp;caseMask {
+			return false
+		}
+	}
+	return true
+}
+</pre>
+            </td>
+            <td>
+                
+                    <img src="fold.go._.simpleLetterEqualFold.png" alt="Control flow graph of simpleLetterEqualFold">
+                
+            </td>
+        </tr>
+    
+</table>
+</body>
+</html>
