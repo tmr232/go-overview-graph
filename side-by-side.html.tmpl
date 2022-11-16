@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Filename }}</title>
+    <style>
+        td {
+            vertical-align: top;
+        }
+
+        pre {
+            padding-right: 200px;
+        }
+
+        td {
+            border-top: solid 1px blue;
+        }
+    </style>
+</head>
+<body>
+<table>
+    {{ range .Rows }}
+        <tr>
+            <td>
+            <pre>{{ .Code }}
+</pre>
+            </td>
+            <td>
+                {{ if .HasImage }}
+                    <img src="{{ .Image }}" alt="Control flow graph of {{ .Name }}">
+                {{ end }}
+            </td>
+        </tr>
+    {{ end }}
+</table>
+</body>
+</html>

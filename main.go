@@ -145,6 +145,69 @@ type FileOverview struct {
 
 type Overview map[string]*FileOverview
 
+// SideBySide generates an overview for an entire package in HTML.
+func SideBySide(pkg string, outpath string) error {
+	goat.Self().Name("sxs")
+	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
+	goat.Flag(outpath).Name("out").Usage("Output file will be written to `path`.")
+
+	// Load, parse, and type-check the initial packages.
+	cfg := &packages.Config{Mode: packages.LoadSyntax}
+	initial, err := packages.Load(cfg, pkg)
+	if err != nil {
+		return err
+	}
+
+	// Stop if any package had errors.
+	// This step is optional; without it, the next step
+	// will create SSA for only a subset of packages.
+	if packages.PrintErrors(initial) > 0 {
+		log.Fatalf("packages contain errors")
+	}
+
+	// Create SSA packages for all well-typed packages.
+	prog, pkgs := ssautil.Packages(initial, 0)
+	_ = prog
+
+	// Build SSA code for the well-typed initial packages.
+	for _, p := range pkgs {
+		if p != nil {
+			p.Build()
+		}
+	}
+
+	overview := make(Overview)
+	for f, _ := range ssautil.AllFunctions(prog) {
+		if f.Pkg != pkgs[0] {
+			continue
+		}
+		pos := prog.Fset.Position(f.Pos())
+
+		fileOverview, exists := overview[pos.Filename]
+		if !exists {
+			fileOverview = &FileOverview{Filename: pos.Filename}
+			overview[pos.Filename] = fileOverview
+		}
+		funcDot, err := blocksToDot(f)
+		if err != nil {
+			return errors.Wrap(err, "Failed converting function to dot")
+		}
+		fileOverview.Functions = append(fileOverview.Functions, FunctionOverview{
+			Name: f.Name(),
+			Dot:  string(funcDot),
+			Line: pos.Line,
+		})
+	}
+	for _, fileOverview := range overview {
+		err := renderSideBySide(fileOverview, outpath)
+		if err != nil {
+			return errors.Wrap(err, "Failed rendering SXS")
+		}
+	}
+
+	return nil
+}
+
 // PackageOverview generates an overview for an entire package.
 func PackageOverview(pkg string, outpath string) error {
 	goat.Self().Name("package")
@@ -271,5 +334,6 @@ func main() {
 	goat.App("graph-overview",
 		goat.Command(GenerateOverview),
 		goat.Command(PackageOverview),
+		goat.Command(SideBySide),
 	).Run()
 }
