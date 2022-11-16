@@ -43,9 +43,22 @@ func Demo(flag bool, n int) {
 Run the tool:
 
 ```bash
-go run . --pkg ./demo --function Demo | dot -Tpng -o"media/demo.png"
+go run . function --pkg ./demo --function Demo | dot -Tpng -o"media/demo.png"
 ```
 
 And we get:
 
 ![Graph showing the control flow of the Demo function](media/demo.png)
+
+## Side By Side 
+
+Run:
+
+```bash
+mkdir sxs
+go run . sxs --pkg ./demo --out ./sxs
+```
+
+And we get:
+
+![Side by side view of the demo code](media/sxs-demo.png)
