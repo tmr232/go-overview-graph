@@ -17,14 +17,16 @@ import (
 	"gonum.org/v1/gonum/graph/simple"
 	"io/ioutil"
 	"log"
+	"os"
 )
 
 type Node struct {
-	index    int
-	function *ssa.Function
+	index       int
+	function    *ssa.Function
+	hasSelfEdge bool
 }
 
-func (n Node) Attributes() []encoding.Attribute {
+func (n *Node) Attributes() []encoding.Attribute {
 	var lines []string
 	block := n.function.Blocks[n.index]
 	for _, instr := range block.Instrs {
@@ -44,8 +46,7 @@ func (n Node) Attributes() []encoding.Attribute {
 		minHeight = 0.5
 	}
 
-	return []encoding.Attribute{
-		//{"label", strings.Join(lines, "\n") + "\n"},
+	attributes := []encoding.Attribute{
 		{"label", ""},
 		{"shape", shape},
 		{"fixedsize", "true"},
@@ -53,9 +54,16 @@ func (n Node) Attributes() []encoding.Attribute {
 		{"fillcolor", fillColor},
 		{"style", "filled"},
 	}
+	if n.hasSelfEdge {
+		attributes = append(attributes, encoding.Attribute{
+			Key:   "xlabel",
+			Value: "🔄",
+		})
+	}
+	return attributes
 }
 
-func (n Node) ID() int64 {
+func (n *Node) ID() int64 {
 	return int64(n.index)
 }
 
@@ -95,11 +103,11 @@ func (e Edge) Attributes() []encoding.Attribute {
 }
 
 func (e Edge) From() graph.Node {
-	return Node{e.from, e.function}
+	return &Node{index: e.from, function: e.function}
 }
 
 func (e Edge) To() graph.Node {
-	return Node{e.to, e.function}
+	return &Node{index: e.to, function: e.function}
 }
 
 func (e Edge) ReversedEdge() graph.Edge {
@@ -112,13 +120,19 @@ func blocksToDot(function *ssa.Function) ([]byte, error) {
 	for _, block := range function.Blocks {
 		functionGraph.AddNode(&Node{index: block.Index, function: function})
 	}
+
 	for _, block := range function.Blocks {
 		for _, succ := range block.Succs {
-			functionGraph.SetEdge(Edge{
-				from:     block.Index,
-				to:       succ.Index,
-				function: function,
-			})
+			// gonum.graph.simple does not support self-links, so we hack around it...
+			if block.Index == succ.Index {
+				functionGraph.Node(int64(block.Index)).(*Node).hasSelfEdge = true
+			} else {
+				functionGraph.SetEdge(Edge{
+					from:     block.Index,
+					to:       succ.Index,
+					function: function,
+				})
+			}
 		}
 	}
 
@@ -146,10 +160,15 @@ type FileOverview struct {
 type Overview map[string]*FileOverview
 
 // SideBySide generates an overview for an entire package in HTML.
-func SideBySide(pkg string, outpath string) error {
+func SideBySide(pkg string, outDir string) error {
 	goat.Self().Name("sxs")
 	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
-	goat.Flag(outpath).Name("out").Usage("Output file will be written to `path`.")
+	goat.Flag(outDir).Name("out").Usage("Results will be written into the selected `directory`.")
+
+	err := os.MkdirAll(outDir, 0666)
+	if err != nil {
+		return errors.Wrap(err, "Failed creating output directory at "+outDir)
+	}
 
 	// Load, parse, and type-check the initial packages.
 	cfg := &packages.Config{Mode: packages.LoadSyntax}
@@ -202,7 +221,7 @@ func SideBySide(pkg string, outpath string) error {
 		if fileOverview.Filename == "" {
 			continue
 		}
-		err := renderSideBySide(fileOverview, outpath)
+		err := renderSideBySide(fileOverview, outDir)
 		if err != nil {
 			return errors.Wrap(err, "Failed rendering SXS")
 		}

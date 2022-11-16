@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -83,10 +84,13 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 		Image: nil,
 	})
 
+	baseName := filepath.Base(fileOverview.Filename)
+	log.Printf("%s -> %s", fileOverview.Filename, baseName)
+
 	for i, code := range lineBlocks[1:] {
 		funcOverview := functionOverviews[i]
 
-		imageName := funcOverview.Name + ".png"
+		imageName := fmt.Sprintf("%s._.%s.png", baseName, funcOverview.Name)
 		imagePath := path.Join(outPath, imageName)
 		err := renderPng([]byte(funcOverview.Dot), imagePath)
 		if err != nil {
@@ -111,7 +115,7 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 		return errors.Wrap(err, "Failed executing side-by-side template")
 	}
 
-	indexPath := path.Join(outPath, "index.html")
+	indexPath := path.Join(outPath, fmt.Sprintf("%s.html", baseName))
 	err = ioutil.WriteFile(indexPath, out.Bytes(), 0o666)
 	if err != nil {
 		return errors.Wrap(err, "Failed writing output to "+indexPath)
