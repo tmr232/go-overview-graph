@@ -19,6 +19,28 @@ import (
 //go:embed side-by-side.html.tmpl
 var sideBySideTemplate string
 
+//go:embed index.html.tmpl
+var sideBySideIndexTemplate string
+
+var templates struct {
+	File  *template.Template
+	Index *template.Template
+}
+
+func init() {
+	t, err := template.New("side-by-side").Parse(sideBySideTemplate)
+	if err != nil {
+		log.Fatal(err)
+	}
+	templates.File = t
+
+	t, err = template.New("index").Parse(sideBySideIndexTemplate)
+	if err != nil {
+		log.Fatal(err)
+	}
+	templates.Index = t
+}
+
 type sideBySideRow struct {
 	Name  string
 	Code  string
@@ -66,8 +88,10 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 		return functionOverviews[i].Line < functionOverviews[j].Line
 	})
 
+	baseName := filepath.Base(fileOverview.Filename)
+
 	data := sideBySideData{
-		Filename: fileOverview.Filename,
+		Filename: baseName,
 		Rows:     nil,
 	}
 	var lineBlocks []string
@@ -84,7 +108,6 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 		Image: nil,
 	})
 
-	baseName := filepath.Base(fileOverview.Filename)
 	log.Printf("%s -> %s", fileOverview.Filename, baseName)
 
 	for i, code := range lineBlocks[1:] {
@@ -104,13 +127,8 @@ func renderSideBySide(fileOverview *FileOverview, outPath string) error {
 		})
 	}
 
-	t, err := template.New("side-by-side").Parse(sideBySideTemplate)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	var out bytes.Buffer
-	err = t.Execute(&out, data)
+	err = templates.File.Execute(&out, data)
 	if err != nil {
 		return errors.Wrap(err, "Failed executing side-by-side template")
 	}
