@@ -18,6 +18,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
+	"path/filepath"
 )
 
 type Node struct {
@@ -57,7 +59,7 @@ func (n *Node) Attributes() []encoding.Attribute {
 	if n.hasSelfEdge {
 		attributes = append(attributes, encoding.Attribute{
 			Key:   "xlabel",
-			Value: "🔄",
+			Value: "self-loop",
 		})
 	}
 	return attributes
@@ -159,6 +161,16 @@ type FileOverview struct {
 
 type Overview map[string]*FileOverview
 
+type sideBySideIndexItem struct {
+	Path     string
+	Filename string
+}
+
+type sideBySideIndex struct {
+	Package string
+	Files   []sideBySideIndexItem
+}
+
 // SideBySide generates an overview for an entire package in HTML.
 func SideBySide(pkg string, outDir string) error {
 	goat.Self().Name("sxs")
@@ -217,6 +229,12 @@ func SideBySide(pkg string, outDir string) error {
 			Line: pos.Line,
 		})
 	}
+
+	sxsIndex := sideBySideIndex{
+		Package: pkg,
+		Files:   nil,
+	}
+
 	for _, fileOverview := range overview {
 		if fileOverview.Filename == "" {
 			continue
@@ -225,6 +243,22 @@ func SideBySide(pkg string, outDir string) error {
 		if err != nil {
 			return errors.Wrap(err, "Failed rendering SXS")
 		}
+
+		sxsIndex.Files = append(sxsIndex.Files, sideBySideIndexItem{
+			Path:     fmt.Sprintf("%s.html", filepath.Base(fileOverview.Filename)),
+			Filename: filepath.Base(fileOverview.Filename),
+		})
+	}
+	var out bytes.Buffer
+	err = templates.Index.Execute(&out, sxsIndex)
+	if err != nil {
+		return errors.Wrap(err, "Failed executing index template")
+	}
+
+	indexPath := path.Join(outDir, "index.html")
+	err = ioutil.WriteFile(indexPath, out.Bytes(), 0o666)
+	if err != nil {
+		return errors.Wrap(err, "Failed writing output to "+indexPath)
 	}
 
 	return nil

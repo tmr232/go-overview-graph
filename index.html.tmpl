@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Package }} Graph Overview</title>
+</head>
+<body>
+<h1>
+    Package: <code>{{ .Package }}</code>
+</h1>
+<ul>
+    {{ range .Files }}
+        <li>
+            <a href="{{ .Path }}">{{ .Filename }}</a>
+        </li>
+    {{ end }}
+</ul>
+</body>
+</html>

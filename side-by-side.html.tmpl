@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ .Filename }}</title>
+    <title>{{ .Filename }} Graph Overview</title>
     <style>
         td {
             vertical-align: top;
@@ -18,6 +18,9 @@
     </style>
 </head>
 <body>
+<h1>
+    File: <code>{{ .Filename }}</code>
+</h1>
 <table>
     {{ range .Rows }}
         <tr>
