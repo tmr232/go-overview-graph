@@ -182,29 +182,9 @@ func SideBySide(pkg string, outDir string) error {
 		return errors.Wrap(err, "Failed creating output directory at "+outDir)
 	}
 
-	// Load, parse, and type-check the initial packages.
-	cfg := &packages.Config{Mode: packages.LoadSyntax}
-	initial, err := packages.Load(cfg, pkg)
+	prog, pkgs, err := loadPackageSSA(pkg)
 	if err != nil {
 		return err
-	}
-
-	// Stop if any package had errors.
-	// This step is optional; without it, the next step
-	// will create SSA for only a subset of packages.
-	if packages.PrintErrors(initial) > 0 {
-		log.Fatalf("packages contain errors")
-	}
-
-	// Create SSA packages for all well-typed packages.
-	prog, pkgs := ssautil.Packages(initial, 0)
-	_ = prog
-
-	// Build SSA code for the well-typed initial packages.
-	for _, p := range pkgs {
-		if p != nil {
-			p.Build()
-		}
 	}
 
 	overview := make(Overview)
@@ -264,17 +244,12 @@ func SideBySide(pkg string, outDir string) error {
 	return nil
 }
 
-// PackageOverview generates an overview for an entire package.
-func PackageOverview(pkg string, outpath string) error {
-	goat.Self().Name("package")
-	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
-	goat.Flag(outpath).Name("out").Usage("Output file will be written to `path`.")
-
+func loadPackageSSA(pkg string) (*ssa.Program, []*ssa.Package, error) {
 	// Load, parse, and type-check the initial packages.
-	cfg := &packages.Config{Mode: packages.LoadSyntax}
+	cfg := &packages.Config{Mode: packages.NeedSyntax}
 	initial, err := packages.Load(cfg, pkg)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Stop if any package had errors.
@@ -293,6 +268,19 @@ func PackageOverview(pkg string, outpath string) error {
 		if p != nil {
 			p.Build()
 		}
+	}
+	return prog, pkgs, nil
+}
+
+// PackageOverview generates an overview for an entire package.
+func PackageOverview(pkg string, outpath string) error {
+	goat.Self().Name("package")
+	goat.Flag(pkg).Usage("The path of the package to load.\nYou may need to run 'go get `package`' to fetch it first.")
+	goat.Flag(outpath).Name("out").Usage("Output file will be written to `path`.")
+
+	prog, pkgs, err := loadPackageSSA(pkg)
+	if err != nil {
+		return err
 	}
 
 	overview := make(Overview)
@@ -338,29 +326,9 @@ func GenerateOverview(pkg string, function string, png *string) error {
 	goat.Flag(function).Usage("The name of the function to generate an overview of.")
 	goat.Flag(png).Usage("An optional `path` to save a rendered PNG to.\nWhen used, DOT will not be printed to STDOUT.")
 
-	// Load, parse, and type-check the initial packages.
-	cfg := &packages.Config{Mode: packages.LoadSyntax}
-	initial, err := packages.Load(cfg, pkg)
+	_, pkgs, err := loadPackageSSA(pkg)
 	if err != nil {
 		return err
-	}
-
-	// Stop if any package had errors.
-	// This step is optional; without it, the next step
-	// will create SSA for only a subset of packages.
-	if packages.PrintErrors(initial) > 0 {
-		log.Fatalf("packages contain errors")
-	}
-
-	// Create SSA packages for all well-typed packages.
-	prog, pkgs := ssautil.Packages(initial, 0)
-	_ = prog
-
-	// Build SSA code for the well-typed initial packages.
-	for _, p := range pkgs {
-		if p != nil {
-			p.Build()
-		}
 	}
 
 	for _, p := range pkgs {
