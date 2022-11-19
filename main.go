@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/tmr232/goat"
-	"go/token"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -143,11 +142,6 @@ func blocksToDot(function *ssa.Function) ([]byte, error) {
 	return dotGraph, err
 }
 
-type entry struct {
-	Func     *ssa.Function
-	Position token.Position
-}
-
 type FunctionOverview struct {
 	Name string `json:"name"`
 	Dot  string `json:"dot"`
@@ -188,7 +182,7 @@ func SideBySide(pkg string, outDir string) error {
 	}
 
 	overview := make(Overview)
-	for f, _ := range ssautil.AllFunctions(prog) {
+	for f := range ssautil.AllFunctions(prog) {
 		if f.Pkg != pkgs[0] {
 			continue
 		}
@@ -284,7 +278,7 @@ func PackageOverview(pkg string, outpath string) error {
 	}
 
 	overview := make(Overview)
-	for f, _ := range ssautil.AllFunctions(prog) {
+	for f := range ssautil.AllFunctions(prog) {
 		if f.Pkg != pkgs[0] {
 			continue
 		}
